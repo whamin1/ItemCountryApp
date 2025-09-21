@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/homeFragment">
+
+    <fragment
+        android:id="@+id/homeFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.HomeFragment"
+        android:label="홈" />
+
+<!--    <fragment-->
+<!--        android:id="@+id/addedFragment"-->
+<!--        android:name="com.bignerdranch.android.myapplication.ui.AddedFragment"-->
+<!--        android:label="추가목록" />-->
+
+    <fragment
+        android:id="@+id/catalogFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.catalog.CatalogFragment"
+        android:label="카탈로그" />
+
+    <fragment
+        android:id="@+id/settingsFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.SettingsFragment"
+        android:label="설정" />
+</navigation>

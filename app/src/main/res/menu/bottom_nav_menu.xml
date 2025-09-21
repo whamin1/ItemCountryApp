@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/homeFragment"
+        android:icon="@drawable/ic_home"
+        android:title="홈" />
+
+    <item
+        android:id="@+id/catalogFragment"
+        android:icon="@drawable/ic_add_circle"
+        android:title="카탈로그" />
+
+    <item
+        android:id="@+id/settingsFragment"
+        android:icon="@drawable/ic_settings"
+        android:title="설정" />
+</menu>

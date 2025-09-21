@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:padding="16dp" android:orientation="vertical"
+    android:layout_width="match_parent" android:layout_height="wrap_content">
+
+    <RadioGroup
+        android:id="@+id/rgDeleteMode"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <RadioButton
+            android:id="@+id/rbDeleteLink"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:checked="true" android:text="연결만 삭제 (아이템–나라)" />
+        <RadioButton
+            android:id="@+id/rbDeleteItem"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="아이템 전체 삭제" />
+        <RadioButton
+            android:id="@+id/rbDeleteCountry"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="나라 전체 삭제" />
+    </RadioGroup>
+
+    <!-- 연결 삭제용: 아이템/나라 둘 다 입력 -->
+    <EditText
+        android:id="@+id/etItem"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="아이템명 (예: 사과)" />
+
+    <EditText
+        android:id="@+id/etCountry"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="나라명 (예: 한국)" />
+</LinearLayout>

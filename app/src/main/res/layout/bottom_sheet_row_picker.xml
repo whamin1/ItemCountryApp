@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:padding="16dp"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:text="수정할 항목을 선택하세요"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="8dp"/>
+
+    <!-- 간단하게 ListView로 목록 표현 -->
+    <ListView
+        android:id="@+id/listRows"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+</LinearLayout>

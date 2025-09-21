@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:padding="16dp"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <!-- 모드 선택 -->
+    <RadioGroup
+        android:id="@+id/rgMode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <RadioButton
+            android:id="@+id/rbItemToCountries"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="아이템 → 나라들" />
+        <RadioButton
+            android:id="@+id/rbCountryToItems"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="나라 → 아이템들" />
+    </RadioGroup>
+
+    <!-- 머리(왼쪽) 입력: 아이템명 또는 나라명 -->
+    <EditText
+        android:id="@+id/etHead"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="아이템 또는 나라 (머리)"
+        android:inputType="text" />
+
+    <!-- 목록(오른쪽) 입력: 콤마로 구분 -->
+    <EditText
+        android:id="@+id/etList"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="콤마(,)로 구분해 여러 개 입력"
+        android:inputType="text" />
+</LinearLayout>
