@@ -201,7 +201,7 @@ ORDER BY i.name, c.name
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertCountry(country: CountryEntity): Long
 
-    @Query("SELECT name FROM countries")
+    @Query("SELECT name FROM countries ORDER BY name")
     fun getAllCountryNames(): kotlinx.coroutines.flow.Flow<List<String>>
 }
 

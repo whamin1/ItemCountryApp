@@ -13,11 +13,13 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.launch
 
 class CountryFragment : Fragment(R.layout.fragment_country) {
     private val vm: ItemCountryViewModel by activityViewModels()
     private lateinit var adapter: NameListAdapter
+    private var mediator: TabLayoutMediator? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -27,6 +29,7 @@ class CountryFragment : Fragment(R.layout.fragment_country) {
         adapter = NameListAdapter()
         recycler.layoutManager = LinearLayoutManager(requireContext())
         recycler.adapter = adapter
+
 
         // 아이템 목록 관찰
         viewLifecycleOwner.lifecycleScope.launch {

@@ -11,8 +11,12 @@ import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class ItemCountryViewModel(app: Application, private val repository: ItemCountryRepository) : AndroidViewModel(app) {
+class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
+    private val repository: ItemCountryRepository by lazy {
+        val db = AppDatabase.get(app)
+        ItemCountryRepository(db.itemCountryDao())
+    }
     private val repo: ItemCountryRepository
 
 

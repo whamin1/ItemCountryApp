@@ -11,6 +11,7 @@ import android.widget.*
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.SwitchCompat
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -30,7 +31,7 @@ import kotlinx.coroutines.launch
 
 class HomeFragment : Fragment(R.layout.fragment_home) {
 
-    private val vm: ItemCountryViewModel by viewModels()
+    private val vm: ItemCountryViewModel by activityViewModels()
 
     private val isCountryMode = MutableStateFlow(false)
 
