@@ -9,7 +9,8 @@ import com.bignerdranch.android.myapplication.R
 
 class NameListAdapter(
     private var items: List<String> = emptyList(),
-    private val onClick: (String) -> Unit = {}
+    private val onClick: (String) -> Unit = {},
+    private val onLongClick: (String) -> Unit = {}
 ) : RecyclerView.Adapter<NameListAdapter.VH>() {
 
     class VH(v: View): RecyclerView.ViewHolder(v) {

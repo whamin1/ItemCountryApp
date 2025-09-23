@@ -26,7 +26,17 @@ class CountryFragment : Fragment(R.layout.fragment_country) {
 
         val countryName = requireArguments().getString(ARG_COUNTRY)!!
         val recycler = view.findViewById<RecyclerView>(R.id.recycler)
-        adapter = NameListAdapter()
+
+        adapter = NameListAdapter(
+            onClick = { item ->
+                // 아이템 클릭 시 액션
+            },
+            onLongClick = { item ->
+                showDeleteItemInCountryDialog(countryName, item)
+            }
+        )
+
+
         recycler.layoutManager = LinearLayoutManager(requireContext())
         recycler.adapter = adapter
 
@@ -44,6 +54,20 @@ class CountryFragment : Fragment(R.layout.fragment_country) {
             showAddItemDialog(countryName)
         }
     }
+
+    private fun showDeleteItemInCountryDialog(country: String, item: String) {
+        AlertDialog.Builder(requireContext())
+            .setTitle("삭제 방법 선택")
+            .setItems(arrayOf("이 나라와의 연결만 삭제", "아이템 전체 삭제")) { d, which ->
+                when (which) {
+                    0 -> vm.deleteLink(item, country)   // 🔗 링크만 제거
+                    1 -> vm.deleteItem(item)             // 🗑 아이템 전역 삭제
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
 
     private fun showAddItemDialog(country: String) {
         val et = EditText(requireContext())

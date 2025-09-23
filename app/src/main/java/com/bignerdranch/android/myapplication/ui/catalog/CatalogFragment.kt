@@ -37,11 +37,32 @@ class CatalogFragment : Fragment(R.layout.fragment_catalog) {
 
         viewLifecycleOwner.lifecycleScope.launch {
             vm.allCountryNames.collect { countries: List<String> ->
-                pagerAdapter.submitCountries(countries)
                 mediator?.detach()
+                mediator = null
+                pagerAdapter.submitCountries(countries)
                 mediator = TabLayoutMediator(tabLayout, pager) { tab, pos ->
-                    tab.text = countries[pos]
+                    tab.text = pagerAdapter.getTitle(pos)
                 }.also { it.attach() }
+            }
+        }
+
+        // ✅ 탭 롱클릭 삭제
+        for (i in 0 until tabLayout.tabCount) {
+            val tab = tabLayout.getTabAt(i) ?: continue
+            // tab.view 는 MaterialComponents에서 제공하는 뷰
+            tab.view.setOnLongClickListener {
+                val country = tab.text?.toString().orEmpty()
+                if (country.isNotEmpty()) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("나라 삭제")
+                        .setMessage("‘$country’을(를) 삭제할까요?")
+                        .setPositiveButton("삭제") { _, _ ->
+                            vm.deleteCountry(country)
+                        }
+                        .setNegativeButton("취소", null)
+                        .show()
+                }
+                true
             }
         }
 

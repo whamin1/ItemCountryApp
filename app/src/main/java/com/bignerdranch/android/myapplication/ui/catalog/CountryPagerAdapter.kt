@@ -11,13 +11,16 @@ class CountryPagerAdapter(f: Fragment) : FragmentStateAdapter(f) {
         countries = newList
         notifyDataSetChanged()
     }
+    fun getTitle(position: Int): String =
+        countries.getOrNull(position).orEmpty()
 
     override fun getItemCount() = countries.size
 
     override fun createFragment(pos: Int): Fragment {
-        val countryName = countries[pos]
         return CountryFragment.newInstance(countries[pos])
     }
+
     override fun getItemId(position: Int): Long =countries[position].hashCode().toLong()
+
     override fun containsItem(itemId: Long): Boolean = countries.any { it.hashCode().toLong() == itemId }
 }
