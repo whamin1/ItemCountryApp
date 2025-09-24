@@ -3,7 +3,9 @@ package com.bignerdranch.android.myapplication.ui.catalog
 import android.app.AlertDialog
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
+import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
@@ -43,6 +45,8 @@ class CatalogFragment : Fragment(R.layout.fragment_catalog) {
                 mediator = TabLayoutMediator(tabLayout, pager) { tab, pos ->
                     tab.text = pagerAdapter.getTitle(pos)
                 }.also { it.attach() }
+                // 4) attach 직후 탭 뷰에 롱클릭 연결 (매번!)
+                tabLayout.post { wireTabLongClicks() }
             }
         }
 
@@ -70,6 +74,33 @@ class CatalogFragment : Fragment(R.layout.fragment_catalog) {
             showAddCountryDialog()
         }
     }
+
+    private fun wireTabLongClicks() {
+        // TabLayout의 첫 번째 자식은 탭 스트립(ViewGroup)
+        val tabStrip = tabLayout.getChildAt(0) as? ViewGroup ?: return
+        for (i in 0 until tabStrip.childCount) {
+            val tabView = tabStrip.getChildAt(i)
+            tabView.isLongClickable = true
+            tabView.setOnLongClickListener {
+                val country = pagerAdapter.getTitle(i)
+                if (country.isNotEmpty()) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("나라 삭제")
+                        .setMessage("‘$country’을(를) 삭제할까요? (연결된 아이템도 함께 제거)")
+                        .setPositiveButton("삭제") { _, _ ->
+                            // ViewModel 통해 실제 삭제
+                            (requireActivity()
+                                .viewModels<ItemCountryViewModel>()
+                                .value).deleteCountry(country)
+                        }
+                        .setNegativeButton("취소", null)
+                        .show()
+                }
+                true // 이벤트 소비
+            }
+        }
+    }
+
     private fun showAddCountryDialog() {
         val et = EditText(requireContext())
         AlertDialog.Builder(requireContext())

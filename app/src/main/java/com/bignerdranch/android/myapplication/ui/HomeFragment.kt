@@ -259,11 +259,25 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                         vm.deleteItem(item)
                     }
                     rbCountry.isChecked -> {
+
+                        // 현재 화면 모드에 따라 country 이름을 결정
+                        val countryNames: List<String> = if (isCountryMode.value) {
+                            // 나라 기준 모드면 head 자체가 나라 이름
+                            listOf(head)
+                        } else {
+                            // 아이템 기준 모드면 etCountry에 "한국, 일본, ..." 처럼 들어있음 → 분리
+                            country.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        }
+
                         if (country.isEmpty()) {
                             Toast.makeText(requireContext(), "나라명을 입력하세요.", Toast.LENGTH_SHORT).show()
                             return@setPositiveButton
                         }
-                        vm.deleteCountry(country)
+
+                        // 여러 개도 모두 삭제
+                        countryNames.forEach { name ->
+                            vm.deleteCountry(name)
+                        }
                     }
                 }
                 Toast.makeText(requireContext(), "삭제 완료!", Toast.LENGTH_SHORT).show()

@@ -27,6 +27,10 @@ class NameListAdapter(
         val name = items[position]
         holder.tv.text = name
         holder.itemView.setOnClickListener { onClick(name) }
+        holder.itemView.setOnLongClickListener {
+            onLongClick(name)
+            true
+        }
     }
 
     override fun getItemCount() = items.size

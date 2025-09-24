@@ -19,19 +19,20 @@
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="597dp"
         android:layout_weight="1">
 
         <androidx.viewpager2.widget.ViewPager2
             android:id="@+id/pager"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
-    </FrameLayout>
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:id="@+id/fabAddCountry"
-        android:layout_gravity="end"
+        android:layout_gravity="bottom|end"
         android:layout_margin="16dp"
-       />
+        />
+    </FrameLayout>
+
 </LinearLayout>
