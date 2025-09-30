@@ -111,8 +111,8 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         repo.deleteCountryByName(country)
     }
 
-    fun updateQuantity(item: String, country: String, needed: Int, have: Int) = viewModelScope.launch {
-        repo.updateQuantity(item, country, needed, have)
+    fun updateQuantity(item: String, country: String, needed: Int, have: Int, batchId: Long? = null) = viewModelScope.launch {
+        repo.updateQuantity(item, country, needed, have, batchId)
     }
 
     fun getQuantityLogs(item: String, country: String, limit: Int = 50, onResult: (List<QuantityLogEntity>) -> Unit) {

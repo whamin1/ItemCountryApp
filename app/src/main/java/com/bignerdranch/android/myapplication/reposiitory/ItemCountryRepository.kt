@@ -98,7 +98,7 @@ class ItemCountryRepository(
         dao.deleteCountryById(countryId)
     }
 
-    suspend fun updateQuantity(item: String, country: String, needed: Int, have: Int) {
+    suspend fun updateQuantity(item: String, country: String, needed: Int, have: Int, batchId: Long? = null) {
         val itemId = dao.getItemIdByName(item) ?: return
         val countryId = dao.getCountryIdByName(country) ?: return
         //기존 have 조회
@@ -116,7 +116,8 @@ class ItemCountryRepository(
                     fromHave = before,
                     toHave = have,
                     delta = delta,
-                    timestamp = System.currentTimeMillis()
+                    timestamp = System.currentTimeMillis(),
+                    batchId = batchId ?: 0L
                 )
             )
         }

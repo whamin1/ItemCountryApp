@@ -176,7 +176,8 @@ ORDER BY i.name, c.name
         val fromHave: Int = 0,
         val toHave: Int = 0,
         val delta: Int = 0,
-        val timestamp: Long = 0L
+        val timestamp: Long = 0L,
+        val batchId: Long = 0L
     )
 
     @Query("""
@@ -186,7 +187,8 @@ ORDER BY i.name, c.name
            q.fromHave AS fromHave,
            q.toHave AS toHave,
            q.delta AS delta,
-           q.timestamp AS timestamp
+           q.timestamp AS timestamp,
+           q.batchId AS batchId
     FROM quantity_log q
     JOIN items i ON i.id = q.itemId
     JOIN countries c ON c.id = q.countryId

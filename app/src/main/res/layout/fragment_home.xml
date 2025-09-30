@@ -65,6 +65,14 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:layout_gravity="bottom|end">
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/fabSave"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:contentDescription="저장"
+                    android:layout_gravity="end|bottom"
+                    android:layout_margin="16dp"
+                    android:src="@android:drawable/ic_menu_save"/>
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/fabHistory"

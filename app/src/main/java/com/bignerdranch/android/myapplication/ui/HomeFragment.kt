@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.*
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.view.doOnLayout
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
@@ -35,6 +36,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
     private val isCountryMode = MutableStateFlow(false)
 
+    private val pending = mutableMapOf<Pair<String, String>, Pair<Int, Int>>()
+
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: EntryAdapter
     private lateinit var indexBar: TextView
@@ -44,6 +47,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+
         // 1) 뷰 찾기 (반드시 onViewCreated에서!)
         val toolbar = view.findViewById<androidx.appcompat.widget.Toolbar>(R.id.topAppBar)
         tvMode = view.findViewById(R.id.tvMode)
@@ -52,6 +56,24 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         indexBar = view.findViewById(R.id.indexBar)
         val fabAdd = view.findViewById<FloatingActionButton>(R.id.fabAdd)
         val fabHistory = view.findViewById<FloatingActionButton>(R.id.fabHistory)
+        val fabSave = view.findViewById< FloatingActionButton>(R.id.fabSave)
+        fabSave.setOnClickListener {
+            if (pending.isEmpty()) {
+                Toast.makeText(requireContext(), "변경된 내용이 없습니다.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val batchId = System.currentTimeMillis()
+            viewLifecycleOwner.lifecycleScope.launch {
+                pending.forEach { (key, pair) ->
+                    val (item, country) = key
+                    val (needed, have) = pair
+                    vm.updateQuantity(item, country, needed, have, batchId)
+                }
+                pending.clear()
+                adapter.setTempSnapshot(emptyMap(), isCountryMode.value)
+                Toast.makeText(requireContext(), "저정 완료! (이번 저장이 새 '차수'가 됩니다.", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         // 2) 어댑터/리사이클러뷰 셋업 (클래스 프로퍼티 사용, 지역 변수 만들지 말 것!)
         adapter = EntryAdapter(
@@ -68,8 +90,23 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     }
                     else -> showRowPickerBottomSheet(head, rows)
                 }
+            },
+            onDelta = { head, row, delta ->
+                applyLocalDelta(
+                    head = head,
+                    rowName = row.name,
+                    isCountryMode = isCountryMode.value,
+                    delta = delta,
+                    currentNeeded = row.needed,
+                    currentHave = row.have
+                )
+                // (선택) 화면 갱신 표시: tvLabel에 보이는 보유수를 임시로 +1/-1 반영하고 싶으면
+                // adapter 쪽에 "임시 표시값" 지원을 더해도 됨
+                // 👇 현재 pending 스냅샷을 어댑터에 넘겨 라벨 즉시 반영
+                adapter.setTempSnapshot(pending, isCountryMode.value)
             }
         )
+
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter
         recyclerView.addItemDecoration(
@@ -81,7 +118,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         )
 
         // 3) 인덱스 바
-        setupIndexBar()
+        fitIndexBarLineSpacing()
 
         // 4) 툴바 메뉴 + 검색
         toolbar.inflateMenu(R.menu.menu)
@@ -99,6 +136,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         switchMode.setOnCheckedChangeListener { _, isChecked ->
             isCountryMode.value = isChecked
             tvMode.text = if (isChecked) "나라 기준" else "아이템 기준"
+            adapter.setTempSnapshot(pending, isChecked) // 모드 바뀌면 키 계산 기준도 바뀌니 재적용
         }
         fabAdd.setOnClickListener { showAddDialog() }
         fabHistory.setOnClickListener {
@@ -116,9 +154,43 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     if (countryMode) countryMap else itemMap
                 }.collect { map ->
                     adapter.submitData(map)
+                    adapter.setTempSnapshot(pending, isCountryMode.value)
                 }
             }
         }
+
+
+    }
+
+    private fun fitIndexBarLineSpacing() {
+        indexBar.doOnLayout {
+            val lines = indexBar.text.split("\n")
+            if (lines.size <= 1) return@doOnLayout
+
+            // 글꼴 기본 글자 높이
+            val fm = indexBar.paint.fontMetricsInt
+            val charHeight = (fm.bottom - fm.top)
+
+            // 전체 높이에 맞게 각 줄 사이 여백 계산
+            val totalCharsHeight = charHeight * lines.size
+            val extra = ((indexBar.height - totalCharsHeight).toFloat() / (lines.size - 1))
+                .coerceAtLeast(0f)
+
+            indexBar.setLineSpacing(extra, 1f)  // 줄간격 추가 적용
+        }
+    }
+    private fun applyLocalDelta(head: String, rowName: String, isCountryMode: Boolean, delta: Int, currentNeeded: Int, currentHave: Int) {
+        // 화면 모드에 따라 (item,country) 정리
+        val item = if (!isCountryMode) head else rowName
+        val country = if (!isCountryMode) rowName else head
+
+        // 현재 표시값 + 누적 delta → 임시 have 계산
+        val key = item to country
+        val baseNeeded = currentNeeded
+        val baseHave = currentHave
+        val now = pending[key] ?: (baseNeeded to baseHave)
+        val newHave = (now.second + delta).coerceAtLeast(0)
+        pending[key] = (baseNeeded to newHave)
     }
 
     @SuppressLint("ClickableViewAccessibility")

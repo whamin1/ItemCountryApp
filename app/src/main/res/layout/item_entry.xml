@@ -30,7 +30,8 @@
         android:layout_height="wrap_content"
         android:text="연결된 값들"
         android:textSize="14sp"
-        android:paddingStart="8dp" />
+        android:paddingStart="8dp"
+        android:visibility="gone"/>
     <com.google.android.material.chip.ChipGroup
         android:id="@+id/chipGroupRows"
         android:layout_width="match_parent"

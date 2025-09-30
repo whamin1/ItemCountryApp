@@ -18,7 +18,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntit
         ItemCountryCrossRef::class,
         QuantityLogEntity::class,
         AdditionLogEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

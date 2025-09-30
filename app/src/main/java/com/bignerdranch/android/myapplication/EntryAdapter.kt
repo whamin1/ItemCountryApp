@@ -7,6 +7,7 @@ import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
@@ -23,7 +24,9 @@ data class Row(val name: String, val needed: Int, val have: Int)
  */
 class EntryAdapter(
     private val onItemLongClick: (head: String, list: List<String>) -> Unit,
-    private val onPickRows: (head: String, rows: List<Row>) -> Unit
+    private val onPickRows: (head: String, rows: List<Row>) -> Unit,
+    private val onDelta: (head: String, row: Row, delta: Int) -> Unit   // 👈 추가: -/+ 클릭 이벤트
+
 ) : RecyclerView.Adapter<EntryAdapter.EntryViewHolder>() {
 
     // ----- 섹션 키 생성(가나다/ABC) -----
@@ -44,6 +47,18 @@ class EntryAdapter(
         }
     }
 
+    private var tempHave: Map<Pair<String, String>, Int> = emptyMap()
+    private var tempIsCountryMode: Boolean = false
+
+    fun setTempSnapshot(
+        pending: Map<Pair<String, String>, Pair<Int, Int>>, // (item,country)->(needed,have)
+        isCountryMode: Boolean
+    ) {
+        tempIsCountryMode = isCountryMode
+        // pending에서 have만 꺼내서 보관
+        tempHave = pending.mapValues { it.value.second }
+        notifyDataSetChanged()
+    }
     // ----- 원본/표시 데이터 -----
     private var full: List<Pair<String, List<Row>>> = emptyList()   // 원본(검색용)
     private var items: MutableList<Any> = mutableListOf()           // HeaderRow / GroupRow (표시용)
@@ -177,32 +192,47 @@ class EntryAdapter(
         private val onPickRows: (head: String, rows: List<Row>) -> Unit
     ) : EntryViewHolder(v) {
 
-        private val tvHead: TextView = v.findViewById(R.id.tvHead)
-        private val tvList: TextView = v.findViewById(R.id.tvList)
+        private val inflater = LayoutInflater.from(v.context)
         private val chipGroup: ChipGroup = v.findViewById(R.id.chipGroupRows)
+        private val tvHead: TextView = v.findViewById(R.id.tvHead)
 
         fun bind(head: String, rows: List<Row>, q: String) {
-            // 제목 하이라이트
             tvHead.text = highlight(head, q)
-
-            // 텍스트 리스트는 숨기거나(원하면 둘 다 보여도 됨)
-            tvList.visibility = View.GONE
-
-            // 칩 갱신
             chipGroup.removeAllViews()
             rows.forEach { r ->
-                val chip = Chip(itemView.context).apply {
-                    text = "${r.name} (필요: ${r.needed}, 보유: ${r.have})"
-                    isCheckable = false
-                    setEnsureMinTouchTargetSize(false)
+                val chipView = inflater.inflate(R.layout.view_counter_chip, chipGroup, false)
+                val tv = chipView.findViewById<TextView>(R.id.tvLabel)
+                val btnMinus = chipView.findViewById<ImageButton>(R.id.btnMinus)
+                val btnPlus = chipView.findViewById<ImageButton>(R.id.btnPlus)
 
-                    setOnClickListener { onPickRows(head, listOf(r)) }
-                    setOnLongClickListener {
-                        onItemLongClick(head, listOf(r.name))
-                        true
-                    }
+                // 현재 모드 기준으로 (item,country) 키 만들기
+                val item = if (!tempIsCountryMode) head else r.name
+                val country = if (!tempIsCountryMode) r.name else head
+                val key = item to country
+
+                // 임시 have 값이 있으면 그걸 표시, 없으면 원래 r.have
+                val displayHave = tempHave[key] ?: r.have
+                // (선택) 임시 증감도 같이 보여주고 싶으면 extra 붙이기
+                val extra = tempHave[key]?.let { v -> if (v != r.have) " (${v - r.have})" else "" } ?: ""
+                tv.text = "${r.name} (N:${r.needed}, S:${displayHave})$extra"
+
+                btnMinus.setOnClickListener {
+                    onDelta(head, r, -1)   // 👈 HomeFragment 쪽에서 pending 반영
                 }
-                chipGroup.addView(chip)
+                btnPlus.setOnClickListener {
+                    onDelta(head, r, +1)
+                }
+
+                chipView.setOnClickListener {
+                    onPickRows(head, listOf(r))      // ← 예전 칩 클릭 동작 복구
+                }
+
+                chipView.setOnLongClickListener {
+                    onItemLongClick(head, listOf(r.name))
+                    true
+                }
+
+                chipGroup.addView(chipView)
             }
         }
     }
