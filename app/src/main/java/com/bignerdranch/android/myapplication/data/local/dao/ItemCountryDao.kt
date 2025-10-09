@@ -15,6 +15,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 import kotlinx.coroutines.flow.Flow
 
 /* -------- 관계 DTO -------- */
@@ -205,5 +207,48 @@ ORDER BY i.name, c.name
 
     @Query("SELECT name FROM countries ORDER BY name")
     fun getAllCountryNames(): kotlinx.coroutines.flow.Flow<List<String>>
+
+    @Dao
+    interface SaveArchiveDao {
+        @Insert suspend fun insertSession(s: SaveSessionEntity): Long
+        @Insert suspend fun insertLines(lines: List<SaveSessionLineEntity>)
+        @Query("SELECT * FROM save_session ORDER BY createdAt DESC")
+        suspend fun getSessions(): List<SaveSessionEntity>
+        @Query("SELECT * FROM save_session_line WHERE sessionId = :sessionId ORDER BY timestamp DESC")
+        suspend fun getLines(sessionId: Long): List<SaveSessionLineEntity>
+        @Query("SELECT * FROM save_session_line WHERE sessionId = :sessionId AND country = :country ORDER BY timestamp DESC")
+        suspend fun getLinesByCountry(sessionId: Long, country: String): List<SaveSessionLineEntity>
+    }
+
+    @Query("DELETE FROM quantity_log")
+    suspend fun deleteAllQuantityLogs()
+
+    // 나라 이름으로 해당 나라 로그만 불러오기 (QuantityRow는 네가 이미 쓰는 DTO)
+    @Query("""
+SELECT q.id AS id,
+       i.name AS item,
+       c.name AS country,
+       q.fromHave AS fromHave,
+       q.toHave AS toHave,
+       q.delta AS delta,
+       q.timestamp AS timestamp,
+       q.batchId AS batchId
+FROM quantity_log q
+JOIN items i ON i.id = q.itemId
+JOIN countries c ON c.id = q.countryId
+WHERE c.name = :country
+ORDER BY q.timestamp DESC
+LIMIT :limit
+""")
+    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 500): List<QuantityRow>
+
+    // 해당 나라의 로그만 삭제 (초기화)
+    @Query("""
+DELETE FROM quantity_log 
+WHERE countryId IN (SELECT id FROM countries WHERE name = :country)
+""")
+    suspend fun deleteQuantityLogsByCountry(country: String)
+
+
 }
 

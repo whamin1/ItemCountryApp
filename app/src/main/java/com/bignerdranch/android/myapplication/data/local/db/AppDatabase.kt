@@ -10,6 +10,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 
 @Database(
     entities = [
@@ -17,8 +19,10 @@ import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntit
         CountryEntity::class,
         ItemCountryCrossRef::class,
         QuantityLogEntity::class,
-        AdditionLogEntity::class],
-    version = 8,
+        AdditionLogEntity::class,
+        SaveSessionEntity::class,
+        SaveSessionLineEntity::class],
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,4 +42,6 @@ abstract class AppDatabase : RoomDatabase() {
                     .build().also { INSTANCE = it }
             }
     }
+
+    abstract fun saveArchiveDao(): ItemCountryDao.SaveArchiveDao
 }

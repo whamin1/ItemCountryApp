@@ -65,15 +65,15 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:layout_gravity="bottom|end">
-                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
                     android:id="@+id/fabSave"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:contentDescription="저장"
-                    android:layout_gravity="end|bottom"
-                    android:layout_margin="16dp"
-                    android:src="@android:drawable/ic_menu_save"/>
-
+                    app:icon="@android:drawable/ic_menu_save"
+                    app:iconPadding="8dp"
+                    app:iconGravity="textStart"
+                    app:layout_anchorGravity="bottom|end"
+                    android:layout_margin="16dp"/>
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/fabHistory"
                     android:layout_width="wrap_content"

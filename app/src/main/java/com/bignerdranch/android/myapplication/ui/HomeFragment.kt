@@ -1,15 +1,16 @@
 package com.bignerdranch.android.myapplication.ui
 
 import android.annotation.SuppressLint
-import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
+import android.text.Editable
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.widget.*
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.SwitchCompat
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.doOnLayout
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
@@ -29,6 +30,10 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.text.TextWatcher
+import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 
 class HomeFragment : Fragment(R.layout.fragment_home) {
 
@@ -36,7 +41,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
     private val isCountryMode = MutableStateFlow(false)
 
-    private val pending = mutableMapOf<Pair<String, String>, Pair<Int, Int>>()
+    private data class Pending(
+        val baseNeeded: Int,
+        val baseHave: Int,
+        var newHave: Int
+    )
+    private val pending = mutableMapOf<Pair<String, String>, Pending>()
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: EntryAdapter
@@ -56,21 +66,73 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         indexBar = view.findViewById(R.id.indexBar)
         val fabAdd = view.findViewById<FloatingActionButton>(R.id.fabAdd)
         val fabHistory = view.findViewById<FloatingActionButton>(R.id.fabHistory)
-        val fabSave = view.findViewById< FloatingActionButton>(R.id.fabSave)
+        val fabSave = view.findViewById< ExtendedFloatingActionButton>(R.id.fabSave)
+        val db = AppDatabase.get(requireContext())
+        val itemDao = db.itemCountryDao()
+        val archiveDao = db.saveArchiveDao()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            // 1) 현재 홈 기록(수량 변경 로그) 읽기
+            val rows = itemDao.getRecentQuantityLogs(9999)
+
+            if (rows.isNotEmpty()) {
+                // 2) 세션 헤더 생성 (날짜표시 프래그먼트 리스트에서 보일 타이틀)
+                val title = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                    .format(Date())
+                val sessionId = archiveDao.insertSession(
+                    SaveSessionEntity(title = title, createdAt = System.currentTimeMillis())
+                )
+
+                // 3) 라인들 저장 (원본 batchId/국가/아이템/증감/시각 모두 보존)
+                val lines = rows.map { r ->
+                    SaveSessionLineEntity(
+                        sessionId = sessionId,
+                        batchId   = r.batchId,
+                        country   = r.country,
+                        item      = r.item,
+                        fromHave  = r.fromHave,
+                        toHave    = r.toHave,
+                        delta     = r.delta,
+                        timestamp = r.timestamp
+                    )
+                }
+                archiveDao.insertLines(lines)
+            }
+
+            // 4) 홈 기록(수량 변경 로그) 초기화
+            itemDao.deleteAllQuantityLogs()
+
+            // 5) 임시값 초기화
+            pending.clear()
+            adapter.setTempSnapshot(emptyMap(), isCountryMode.value)
+
+            // 6) “날짜 목록 프래그먼트(HistoryDatesFragment)”로 이동
+            // NavComponent 쓰면:
+            // findNavController().navigate(R.id.action_home_to_historyDates)
+            // or FragmentTransaction:
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, HistoryDatesFragment())
+                .addToBackStack(null)
+                .commit()
+        }
+
         fabSave.setOnClickListener {
             if (pending.isEmpty()) {
                 Toast.makeText(requireContext(), "변경된 내용이 없습니다.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val batchId = System.currentTimeMillis()
+
+            val batchId = System.currentTimeMillis() // 이번 저장 묶음
             viewLifecycleOwner.lifecycleScope.launch {
-                pending.forEach { (key, pair) ->
+                pending.forEach { (key, p) ->
                     val (item, country) = key
-                    val (needed, have) = pair
+                    val needed = p.baseNeeded
+                    val have = p.newHave
                     vm.updateQuantity(item, country, needed, have, batchId)
                 }
                 pending.clear()
                 adapter.setTempSnapshot(emptyMap(), isCountryMode.value)
+                updateFabSaveLabel()
                 Toast.makeText(requireContext(), "저정 완료! (이번 저장이 새 '차수'가 됩니다.", Toast.LENGTH_SHORT).show()
             }
         }
@@ -103,7 +165,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 // (선택) 화면 갱신 표시: tvLabel에 보이는 보유수를 임시로 +1/-1 반영하고 싶으면
                 // adapter 쪽에 "임시 표시값" 지원을 더해도 됨
                 // 👇 현재 pending 스냅샷을 어댑터에 넘겨 라벨 즉시 반영
-                adapter.setTempSnapshot(pending, isCountryMode.value)
+                adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
             }
         )
 
@@ -136,8 +198,9 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         switchMode.setOnCheckedChangeListener { _, isChecked ->
             isCountryMode.value = isChecked
             tvMode.text = if (isChecked) "나라 기준" else "아이템 기준"
-            adapter.setTempSnapshot(pending, isChecked) // 모드 바뀌면 키 계산 기준도 바뀌니 재적용
+            adapter.setTempSnapshot(pendingSnapshotForAdapter(), isChecked) // 모드 바뀌면 키 계산 기준도 바뀌니 재적용
         }
+
         fabAdd.setOnClickListener { showAddDialog() }
         fabHistory.setOnClickListener {
             startActivity(Intent(requireContext(), AddedActivity::class.java))
@@ -151,15 +214,15 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     vm.uiStateCountryQty,  // 나라 → 아이템(수량 포함)
                     isCountryMode
                 ) { itemMap, countryMap, countryMode ->
-                    if (countryMode) countryMap else itemMap
-                }.collect { map ->
+                    countryMode to (if (countryMode) countryMap else itemMap)
+                }.collect { (countryMode, map) ->
                     adapter.submitData(map)
-                    adapter.setTempSnapshot(pending, isCountryMode.value)
+                    adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
+                    updateFabSaveLabel()
                 }
+
             }
         }
-
-
     }
 
     private fun fitIndexBarLineSpacing() {
@@ -179,19 +242,42 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             indexBar.setLineSpacing(extra, 1f)  // 줄간격 추가 적용
         }
     }
-    private fun applyLocalDelta(head: String, rowName: String, isCountryMode: Boolean, delta: Int, currentNeeded: Int, currentHave: Int) {
+    private fun applyLocalDelta(
+        head: String,
+        rowName: String,
+        isCountryMode: Boolean,
+        delta: Int,
+        currentNeeded: Int,
+        currentHave: Int
+    ) {
         // 화면 모드에 따라 (item,country) 정리
+        val countryMode = isCountryMode
         val item = if (!isCountryMode) head else rowName
         val country = if (!isCountryMode) rowName else head
 
         // 현재 표시값 + 누적 delta → 임시 have 계산
         val key = item to country
-        val baseNeeded = currentNeeded
-        val baseHave = currentHave
-        val now = pending[key] ?: (baseNeeded to baseHave)
-        val newHave = (now.second + delta).coerceAtLeast(0)
-        pending[key] = (baseNeeded to newHave)
+        val p = pending[key]
+        if (p == null) {
+            // 처음 수정하는 항목이면 기준값 저장
+            val baseNeeded = currentNeeded
+            val baseHave = currentHave
+            val newHave = (currentHave + delta).coerceAtLeast(0)
+            pending[key] = Pending(baseNeeded, baseHave, newHave)
+        } else {
+            // 이미 있으면 newHave만 갱신
+            p.newHave = (p.newHave + delta).coerceAtLeast(0)
+        }
+
+        // 리스트 임시값 반영(이미 어댑터에 함수 만들었을 거야)
+        adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
+
+        // ✅ FAB 라벨 갱신
+        updateFabSaveLabel()
     }
+
+    private fun pendingSnapshotForAdapter(): Map<Pair<String, String>, Pair<Int, Int>> =
+        pending.mapValues { (_, p) -> p.baseNeeded to p.newHave }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupIndexBar() {
@@ -245,6 +331,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         return result
     }
 
+    // HomeFragment.kt 상단에 추가
+
     private fun showQuantityDialog(
         presetItem: String? = null,
         presetCountry: String? = null,
@@ -262,10 +350,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val btnHavePlus = dialogView.findViewById<Button>(R.id.btnHavePlus)
         val btnHaveMinus = dialogView.findViewById<Button>(R.id.btnHaveMinus)
 
-        presetItem?.let { etItem.setText(it) }
-        presetCountry?.let { etCountry.setText(it) }
-        presetNeeded?.let { etNeeded.setText(it.toString()) }
-        presetHave?.let { etHave.setText(it.toString()) }
+        etItem.setText(presetItem ?: "")
+        etCountry.setText(presetCountry ?: "")
+        etNeeded.setText((presetNeeded ?: 0).toString())
+        etHave.setText((presetHave ?: 0).toString())
+
+        val baseHave = presetHave ?: 0
 
         fun adjust(edit: EditText, delta: Int) {
             val current = edit.text.toString().toIntOrNull() ?: 0
@@ -276,24 +366,132 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         btnHavePlus.setOnClickListener { adjust(etHave, +1) }
         btnHaveMinus.setOnClickListener { adjust(etHave, -1) }
 
-        AlertDialog.Builder(requireContext())
+        val dlg: AlertDialog = MaterialAlertDialogBuilder(requireContext())
             .setTitle("수량 수정")
             .setView(dialogView)
-            .setPositiveButton("저장") { dialog, _ ->
-                val item = etItem.text.toString().trim()
-                val country = etCountry.text.toString().trim()
-                val needed = etNeeded.text.toString().toIntOrNull() ?: 0
-                val have = etHave.text.toString().toIntOrNull() ?: 0
+            .setPositiveButton("저장", null)   // ← onShow에서 커스텀 처리
+            .setNegativeButton("취소", null)
+            .create()
+
+        dlg.setOnShowListener {
+            val btnSave = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+
+            // (중요) 이 다이얼로그의 타겟 키
+            val item = etItem.text.toString().trim()
+            val country = etCountry.text.toString().trim()
+            val key = item to country
+
+            // 이 다이얼로그가 떴을 때의 '기준값'
+            val baseNeeded = etNeeded.text.toString().toIntOrNull() ?: (presetNeeded ?: 0)
+            val baseHave   = presetHave ?: 0
+
+            fun predictedPendingSize(): Int {
+                val newNeeded = etNeeded.text.toString().toIntOrNull() ?: 0
+                val newHave   = etHave.text.toString().toIntOrNull() ?: 0
+
+                // 현재 입력이 '변경'인지 판정 (needed/have 중 하나라도 달라지면 변경으로 간주)
+                val changed = (newNeeded != baseNeeded) || (newHave != baseHave)
+
+                // 현재 pending을 복사해서 가상 적용
+                val copy = pending.toMutableMap()
+                if (changed) {
+                    // 이 키를 대기목록에 넣는다고 가정
+                    val p = copy[key]
+                    if (p == null) {
+                        copy[key] = Pending(baseNeeded, baseHave, newHave)
+                    } else {
+                        p.newHave = newHave
+                    }
+                } else {
+                    // 변경이 없다면 이 키는 대기목록에서 제거한다고 가정
+                    copy.remove(key)
+                }
+                return copy.size
+            }
+
+            fun updateSaveLabel() {
+                val newHave = etHave.text.toString().toIntOrNull() ?: 0
+                val diff = newHave - baseHave
+                btnSave.text = "저장 (${if (diff > 0) "+$diff" else "$diff"})"
+                val color = when {
+                    diff > 0 -> 0xFF2E7D32.toInt()   // 초록
+                    diff < 0 -> 0xFFC62828.toInt()   // 빨강
+                    else -> 0xFF616161.toInt()       // 회색
+                }
+                btnSave.setTextColor(color)
+            }
+
+            // 처음 1회 갱신
+            updateSaveLabel()
+
+            // 보유값이 바뀔 때마다 갱신
+            etHave.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    updateSaveLabel()
+                }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+
+            // 저장 클릭: pending에 진짜 반영(즉시 DB 저장이 아니라 '대기목록' 업데이트)
+            btnSave.setOnClickListener {
+                val newNeeded = etNeeded.text.toString().toIntOrNull() ?: 0
+                val newHave   = etHave.text.toString().toIntOrNull() ?: 0
                 if (item.isEmpty() || country.isEmpty()) {
                     Toast.makeText(requireContext(), "아이템/나라를 입력하세요.", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
-                vm.updateQuantity(item, country, needed, have)
-                Toast.makeText(requireContext(), "저장했습니다.", Toast.LENGTH_SHORT).show()
-                dialog.dismiss()
+                val changed = (newNeeded != baseNeeded) || (newHave != baseHave)
+                if (changed) {
+                    val p = pending[key]
+                    if (p == null) {
+                        pending[key] = Pending(baseNeeded, baseHave, newHave)
+                    } else {
+                        p.newHave = newHave
+                    }
+                } else {
+                    pending.remove(key)
+                }
+
+                // 리스트에 임시값 반영(이미 구현해둔 스냅샷 변환기를 사용)
+                adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
+                updateFabSaveLabel() // 메인 FAB에도 총 변경건/수량 반영 원하면
+
+                Toast.makeText(requireContext(), "대기목록에 반영했습니다.", Toast.LENGTH_SHORT).show()
+                dlg.dismiss()
             }
-            .setNegativeButton("취소", null)
-            .show()
+        }
+
+        dlg.show()
+    }
+
+    private fun updateFabSaveLabel() {
+// 총 변경 수량 합계(새 보유 - 기준 보유)
+        val totalDelta = pending.values.sumOf { it.newHave - it.baseHave }
+
+        // 뷰에서 fabSave 찾기
+        val view = view ?: return
+        val fab = view.findViewById<View>(R.id.fabSave)
+
+        // 1) ExtendedFloatingActionButton 인지 체크
+        if (fab is com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton) {
+            if (totalDelta == 0) {
+                fab.text = "저장"
+                fab.shrink() // 아이콘만
+            } else {
+                fab.text = "저장 (+" + totalDelta + ")"
+                fab.extend() // 텍스트 보이게
+            }
+            return
+        }
+
+        // 2) 일반 FloatingActionButton 인 경우(텍스트가 원래 안 보임)
+        if (fab is com.google.android.material.floatingactionbutton.FloatingActionButton) {
+            // 접근성용 설명 갱신
+            fab.contentDescription = if (totalDelta == 0) "저장" else "저장 (+" + totalDelta + ")"
+            // 필요하면 아래 스낵바 한 줄로 시각 피드백도 줄 수 있어요 (원치 않으면 주석 처리)
+            // Snackbar.make(requireView(), if (totalDelta==0) "변경 없음" else "변경 합계: +$totalDelta", Snackbar.LENGTH_SHORT).show()
+        }
     }
 
     private fun showDeleteDialog(head: String, list: List<String>) {
