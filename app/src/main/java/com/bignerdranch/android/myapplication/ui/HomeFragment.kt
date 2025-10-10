@@ -32,8 +32,16 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.text.TextWatcher
+import androidx.appcompat.widget.Toolbar
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
+import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class HomeFragment : Fragment(R.layout.fragment_home) {
 
@@ -47,19 +55,24 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         var newHave: Int
     )
     private val pending = mutableMapOf<Pair<String, String>, Pending>()
-
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: EntryAdapter
     private lateinit var indexBar: TextView
     private lateinit var tvMode: TextView
     private lateinit var switchMode: SwitchCompat
 
+    private val db by lazy { AppDatabase.get(requireContext()) }
+    private val itemDao by lazy { db.itemCountryDao() }
+    private val archiveDao by lazy { db.saveArchiveDao() }
+
+    private val fullFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
 
         // 1) 뷰 찾기 (반드시 onViewCreated에서!)
-        val toolbar = view.findViewById<androidx.appcompat.widget.Toolbar>(R.id.topAppBar)
+        val toolbar = view.findViewById<Toolbar>(R.id.topAppBar)
         tvMode = view.findViewById(R.id.tvMode)
         switchMode = view.findViewById(R.id.switchMode)
         recyclerView = view.findViewById(R.id.recyclerView)
@@ -67,54 +80,30 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val fabAdd = view.findViewById<FloatingActionButton>(R.id.fabAdd)
         val fabHistory = view.findViewById<FloatingActionButton>(R.id.fabHistory)
         val fabSave = view.findViewById< ExtendedFloatingActionButton>(R.id.fabSave)
-        val db = AppDatabase.get(requireContext())
-        val itemDao = db.itemCountryDao()
-        val archiveDao = db.saveArchiveDao()
+        val fabArchive = view.findViewById<FloatingActionButton>(R.id.fabArchive)
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            // 1) 현재 홈 기록(수량 변경 로그) 읽기
-            val rows = itemDao.getRecentQuantityLogs(9999)
-
-            if (rows.isNotEmpty()) {
-                // 2) 세션 헤더 생성 (날짜표시 프래그먼트 리스트에서 보일 타이틀)
-                val title = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                    .format(Date())
-                val sessionId = archiveDao.insertSession(
-                    SaveSessionEntity(title = title, createdAt = System.currentTimeMillis())
-                )
-
-                // 3) 라인들 저장 (원본 batchId/국가/아이템/증감/시각 모두 보존)
-                val lines = rows.map { r ->
-                    SaveSessionLineEntity(
-                        sessionId = sessionId,
-                        batchId   = r.batchId,
-                        country   = r.country,
-                        item      = r.item,
-                        fromHave  = r.fromHave,
-                        toHave    = r.toHave,
-                        delta     = r.delta,
-                        timestamp = r.timestamp
-                    )
+        fabArchive.setOnClickListener {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val countries = itemDao.getAllCountryNames().first().toTypedArray()
+                if (countries.isEmpty()) {
+                    Toast.makeText(requireContext(), "등록된 나라가 없습니다.", Toast.LENGTH_SHORT).show()
+                    return@launch
                 }
-                archiveDao.insertLines(lines)
+                val checked = BooleanArray(countries.size)
+                AlertDialog.Builder(requireContext())
+                    .setTitle("보관/초기화할 나라 선택")
+                    .setMultiChoiceItems(countries, checked) { _, which, isChecked ->
+                        checked[which] = isChecked
+                    }
+                    .setPositiveButton("실행") { _, _ ->
+                        val selected = countries.filterIndexed { i, _ -> checked[i] }
+                        saveSelectedCountries(selected) // ⬇ 아래 함수 그대로 사용
+                    }
+                    .setNegativeButton("취소", null)
+                    .show()
             }
-
-            // 4) 홈 기록(수량 변경 로그) 초기화
-            itemDao.deleteAllQuantityLogs()
-
-            // 5) 임시값 초기화
-            pending.clear()
-            adapter.setTempSnapshot(emptyMap(), isCountryMode.value)
-
-            // 6) “날짜 목록 프래그먼트(HistoryDatesFragment)”로 이동
-            // NavComponent 쓰면:
-            // findNavController().navigate(R.id.action_home_to_historyDates)
-            // or FragmentTransaction:
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, HistoryDatesFragment())
-                .addToBackStack(null)
-                .commit()
         }
+
 
         fabSave.setOnClickListener {
             if (pending.isEmpty()) {
@@ -221,6 +210,51 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     updateFabSaveLabel()
                 }
 
+            }
+        }
+
+
+    }
+
+    private fun saveSelectedCountries(selectedCountries: List<String>) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            var saveAny = false
+            val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            for (country in selectedCountries) {
+                val rows = itemDao.getQuantityLogsByCountry(country, 1000)
+                if (rows.isEmpty()) continue
+
+                val sessionId = archiveDao.insertSession(
+                    SaveSessionEntity(
+                        title = "$country · ${fmt.format(Date())}", country = country,
+                        createdAt = System.currentTimeMillis()
+                    )
+                )
+                archiveDao.insertLines(
+                    rows.map { r ->
+                        SaveSessionLineEntity(
+                            sessionId = sessionId,
+                            batchId = r.batchId,
+                            country = r.country,
+                            item = r.item,
+                            fromHave = r.fromHave,
+                            toHave = r.toHave,
+                            delta = r.delta,
+                            timestamp = r.timestamp
+                        )
+                    }
+                )
+                itemDao.deleteQuantityLogsByCountry(country)
+                itemDao.resetHaveByCountry(country)
+                saveAny = true
+            }
+            if (saveAny) {
+                // 화면 임시값 정리(안 하면 라벨이 예전 숫자일 수 있음)
+                pending.clear()
+                adapter.setTempSnapshot(emptyMap(), isCountryMode.value)
+                Toast.makeText(requireContext(), "보관 완료 · 선택한 나라 초기화", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "보관할 로그가 없습니다.", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -474,7 +508,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val fab = view.findViewById<View>(R.id.fabSave)
 
         // 1) ExtendedFloatingActionButton 인지 체크
-        if (fab is com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton) {
+        if (fab is ExtendedFloatingActionButton) {
             if (totalDelta == 0) {
                 fab.text = "저장"
                 fab.shrink() // 아이콘만
@@ -486,7 +520,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         }
 
         // 2) 일반 FloatingActionButton 인 경우(텍스트가 원래 안 보임)
-        if (fab is com.google.android.material.floatingactionbutton.FloatingActionButton) {
+        if (fab is FloatingActionButton) {
             // 접근성용 설명 갱신
             fab.contentDescription = if (totalDelta == 0) "저장" else "저장 (+" + totalDelta + ")"
             // 필요하면 아래 스낵바 한 줄로 시각 피드백도 줄 수 있어요 (원치 않으면 주석 처리)

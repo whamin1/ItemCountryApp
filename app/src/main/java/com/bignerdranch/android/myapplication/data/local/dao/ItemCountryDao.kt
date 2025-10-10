@@ -220,8 +220,11 @@ ORDER BY i.name, c.name
         suspend fun getLinesByCountry(sessionId: Long, country: String): List<SaveSessionLineEntity>
     }
 
-    @Query("DELETE FROM quantity_log")
-    suspend fun deleteAllQuantityLogs()
+    @Query("""
+DELETE FROM quantity_log
+WHERE countryId IN (SELECT id FROM countries WHERE name = :country)
+""")
+    suspend fun deleteQuantityLogsByCountry(country: String)
 
     // 나라 이름으로 해당 나라 로그만 불러오기 (QuantityRow는 네가 이미 쓰는 DTO)
     @Query("""
@@ -242,12 +245,12 @@ LIMIT :limit
 """)
     suspend fun getQuantityLogsByCountry(country: String, limit: Int = 500): List<QuantityRow>
 
-    // 해당 나라의 로그만 삭제 (초기화)
     @Query("""
-DELETE FROM quantity_log 
-WHERE countryId IN (SELECT id FROM countries WHERE name = :country)
-""")
-    suspend fun deleteQuantityLogsByCountry(country: String)
+        UPDATE item_country
+        SET have = 0
+        WHERE countryId IN (SELECT id FROM countries WHERE name = :country)
+    """)
+    suspend fun resetHaveByCountry(country: String)
 
 
 }

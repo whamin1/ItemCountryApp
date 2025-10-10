@@ -6,7 +6,8 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "save_session")
 data class SaveSessionEntity(
     @PrimaryKey(autoGenerate = true)
-    val id: Long,
+    val id: Long = 0L,
     val title: String,
-    val createdAt: Long
+    val country: String,
+    val createdAt: Long = System.currentTimeMillis()
 )

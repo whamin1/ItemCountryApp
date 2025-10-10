@@ -27,7 +27,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineE
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun itemCountryDao(): ItemCountryDao
-
+    abstract fun saveArchiveDao(): ItemCountryDao.SaveArchiveDao
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
 
@@ -43,5 +43,5 @@ abstract class AppDatabase : RoomDatabase() {
             }
     }
 
-    abstract fun saveArchiveDao(): ItemCountryDao.SaveArchiveDao
+
 }
