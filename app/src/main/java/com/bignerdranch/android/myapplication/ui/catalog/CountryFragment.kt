@@ -8,6 +8,7 @@ import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
@@ -53,6 +54,10 @@ class CountryFragment : Fragment(R.layout.fragment_country) {
         view.findViewById<FloatingActionButton>(R.id.fabAddItem).setOnClickListener {
             showAddItemDialog(countryName)
         }
+
+       view.findViewById<View>(R.id.btnHistory).setOnClickListener {
+           findNavController().navigate(R.id.countryHistoryFragment, bundleOf("country" to countryName))
+       }
     }
 
     private fun showDeleteItemInCountryDialog(country: String, item: String) {

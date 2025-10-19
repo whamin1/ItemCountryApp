@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 data class QuantityLogEntity (
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val itemId: Long = 0L,
-    val countryId: Long = 0L,
+    val countryId: Long? = 0L,
     val fromHave: Int = 0,
     val toHave: Int = 0,
     val delta: Int = 0,

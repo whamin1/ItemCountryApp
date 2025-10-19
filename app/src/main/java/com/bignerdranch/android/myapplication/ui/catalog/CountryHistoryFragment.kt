@@ -7,11 +7,13 @@ import android.widget.TextView
 import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
+import com.bignerdranch.android.myapplication.ui.history.HistoryDetailFragment
 import kotlinx.coroutines.launch
 
 class CountryHistoryFragment : Fragment(R.layout.fragment_country_history) {
@@ -26,16 +28,15 @@ class CountryHistoryFragment : Fragment(R.layout.fragment_country_history) {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val country = requireArguments().getString("country")!!
+        val country = requireArguments().getString("country") ?: return
 
         val rv = view.findViewById<RecyclerView>(R.id.rvHistory)
         rv.layoutManager = LinearLayoutManager(requireContext())
         val adapter = SessionAdapter { session ->
             // 세션(날짜) 클릭 → 그때의 상세 기록 화면으로
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, HistoryDetailFragment.new(session.id))
-                .addToBackStack(null)
-                .commit()
+            findNavController().navigate(
+                R.id.historyDetailFragment, bundleOf("sessionId" to session.id)
+            )
         }
         rv.adapter = adapter
 
@@ -54,8 +55,8 @@ class CountryHistoryFragment : Fragment(R.layout.fragment_country_history) {
             data.clear(); data.addAll(list); notifyDataSetChanged()
         }
 
-        override fun onCreateViewHolder(parent: ViewGroup, t: Int): VH {
-            val v = layoutInflater.inflate(R.layout.item_added_row, p, false)
+        override fun onCreateViewHolder(p: ViewGroup, t: Int): VH {
+            val v = android.view.LayoutInflater.from(p.context).inflate(R.layout.item_added_row, p, false)
             return VH(v)
         }
 

@@ -22,7 +22,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineE
         AdditionLogEntity::class,
         SaveSessionEntity::class,
         SaveSessionLineEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -81,6 +81,15 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val fabHistory = view.findViewById<FloatingActionButton>(R.id.fabHistory)
         val fabSave = view.findViewById< ExtendedFloatingActionButton>(R.id.fabSave)
         val fabArchive = view.findViewById<FloatingActionButton>(R.id.fabArchive)
+        val fabReset = view.findViewById<FloatingActionButton>(R.id.fabReset)
+
+
+        fabReset.setOnClickListener {
+            pending.clear()
+            adapter.setTempSnapshot(emptyMap(), isCountryMode.value)
+            updateFabSaveLabel()
+            Toast.makeText(requireContext(), "임시 변경 내용을 모두 초기화했습니다.", Toast.LENGTH_SHORT).show()
+        }
 
         fabArchive.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch {
@@ -170,6 +179,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
         // 3) 인덱스 바
         fitIndexBarLineSpacing()
+        indexBar.bringToFront()
+        setupIndexBar()
 
         // 4) 툴바 메뉴 + 검색
         toolbar.inflateMenu(R.menu.menu)
@@ -244,6 +255,27 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                         )
                     }
                 )
+
+                val stocks = itemDao.getHaveByCountry(country)
+                val shipLines = stocks
+                    .filter { it.have > 0 }
+                    .map{ s ->
+                        SaveSessionLineEntity(
+                            id = 0,
+                            sessionId = sessionId,
+                            batchId = 0L,
+                            country = country,
+                            item = s.item,
+                            fromHave = s.have,
+                            toHave = 0,
+                            delta = -s.have,
+                            timestamp = System.currentTimeMillis()
+                        )
+                    }
+                if (shipLines.isNotEmpty()) {
+                    archiveDao.insertLines(shipLines)
+                }
+
                 itemDao.deleteQuantityLogsByCountry(country)
                 itemDao.resetHaveByCountry(country)
                 saveAny = true
@@ -308,6 +340,15 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
         // ✅ FAB 라벨 갱신
         updateFabSaveLabel()
+
+        if (delta > 0) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val itemId = itemDao.getItemIdByName(item) ?: return@launch
+                val countryId = itemDao.getCountryIdByName(country) ?: return@launch
+
+                vm.onPlusClicked(itemId, countryId)
+            }
+        }
     }
 
     private fun pendingSnapshotForAdapter(): Map<Pair<String, String>, Pair<Int, Int>> =

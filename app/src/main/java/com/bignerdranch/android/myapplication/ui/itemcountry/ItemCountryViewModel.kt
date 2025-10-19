@@ -8,8 +8,10 @@ import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -78,7 +80,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ⓐ 카탈로그 상단 탭용: 모든 나라 이름 Flow
-    val allCountryNames: kotlinx.coroutines.flow.Flow<List<String>> =
+    val allCountryNames: Flow<List<String>> =
         repository.getAllCountryNames()
 
     // ⓑ 나라 추가 (FAB에서 호출)
@@ -130,6 +132,19 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    suspend fun onPlusClicked(itemId: Long, countryId: Long) {
+        val from = repo.getHaveNow(itemId, countryId)
+        val to = from + 1
+
+        withContext(Dispatchers.IO) {
+            repo.logPlusEvent(
+                itemId = itemId,
+                countryId = countryId,
+                fromHave = from,
+                toHave = to
+            )
+        }
+    }
 
 
 }

@@ -214,6 +214,8 @@ ORDER BY i.name, c.name
         @Insert suspend fun insertLines(lines: List<SaveSessionLineEntity>)
         @Query("SELECT * FROM save_session ORDER BY createdAt DESC")
         suspend fun getSessions(): List<SaveSessionEntity>
+        @Query("SELECT * FROM save_session WHERE country = :country ORDER BY createdAt DESC")
+        suspend fun getSessionsByCountry(country: String): List<SaveSessionEntity>
         @Query("SELECT * FROM save_session_line WHERE sessionId = :sessionId ORDER BY timestamp DESC")
         suspend fun getLines(sessionId: Long): List<SaveSessionLineEntity>
         @Query("SELECT * FROM save_session_line WHERE sessionId = :sessionId AND country = :country ORDER BY timestamp DESC")
@@ -251,7 +253,53 @@ LIMIT :limit
         WHERE countryId IN (SELECT id FROM countries WHERE name = :country)
     """)
     suspend fun resetHaveByCountry(country: String)
+    @Query("SELECT name FROM items ORDER BY name")
+    suspend fun getAllItemsNames(): List<String>
 
+
+    // 아카이브에 저장된 내역을 기준으로 "최근 since(ms) 이후 나간 수량" 집계.
+// items에 없는 이름도 있을 수 있어서, items 테이블을 기준으로 왼쪽 조인해 0을 채움.
+    @Query("""
+    SELECT i.name AS item,
+           COALESCE((
+             SELECT SUM(CASE WHEN l.delta < 0 AND l.timestamp >= :since THEN l.delta ELSE 0 END)
+             FROM save_session_line l
+             WHERE l.item = i.name
+           ), 0) AS totalOut
+    FROM items i
+    ORDER BY totalOut ASC
+""")
+    suspend fun getArchivedOutflowSinceIncludingZero(since: Long): List<ItemOutflowRow>
+
+    @Query("""
+    SELECT i.name AS item,
+           COALESCE((
+             SELECT SUM(CASE WHEN l.delta < 0 THEN l.delta ELSE 0 END)
+             FROM save_session_line l
+             WHERE l.item = i.name
+           ), 0) AS totalOut
+    FROM items i
+    ORDER BY totalOut ASC
+""")
+    suspend fun getArchivedOutflowAllTimeIncludingZero(): List<ItemOutflowRow>
+    data class ItemOutflowRow(
+        val item: String,
+        val totalOut: Int
+    )
+
+    @Query("""
+SELECT i.name AS item, ic.have AS have
+FROM item_country ic
+JOIN items i ON i.id = ic.itemId
+JOIN countries c ON c.id = c.id
+WHERE c.name = :country
+""")
+    suspend fun getHaveByCountry(country: String): List<HaveRow>
+
+    data class HaveRow(
+        val item: String,
+        val have: Int
+    )
 
 }
 

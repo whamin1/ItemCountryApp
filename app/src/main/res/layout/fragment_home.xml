@@ -48,7 +48,9 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recyclerView"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"/>
+                android:layout_height="match_parent"
+                android:paddingEnd="32dp"
+                android:clipToPadding="false"/>
 
             <!-- 오른쪽 인덱스 바 -->
             <TextView
@@ -58,13 +60,30 @@
                 android:layout_gravity="end"
                 android:gravity="center"
                 android:padding="4dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:elevation="8dp"
+                android:background="#1A000000"
                 android:text="A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\nN\nO\nP\nQ\nR\nS\nT\nU\nV\nW\nX\nY\nZ"/>
+
 
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:layout_gravity="bottom|end">
+
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/fabReset"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:contentDescription="초기화"
+                    android:src="@android:drawable/ic_popup_sync"
+                    app:tint="@android:color/white"
+                    app:layout_anchor="@id/recyclerView"
+                    app:layout_anchorGravity="bottom|end" />
                 <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
                     android:id="@+id/fabSave"
                     android:layout_width="wrap_content"

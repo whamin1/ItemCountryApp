@@ -4,8 +4,10 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
@@ -20,10 +22,10 @@ class HistoryDatesFragment : Fragment(R.layout.fragment_history_dates) {
         val rv = v.findViewById<RecyclerView>(R.id.rvDates)
         rv.layoutManager = LinearLayoutManager(requireContext())
         val adapter = DateAdapter { session ->
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, HistoryDetailFragment.new(session.id))
-                .addToBackStack(null)
-                .commit()
+            findNavController().navigate(
+                R.id.historyDetailFragment,
+                bundleOf("sessionId" to session.id)
+            )
         }
         rv.adapter = adapter
 

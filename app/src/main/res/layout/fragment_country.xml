@@ -20,5 +20,12 @@
         android:layout_gravity="bottom|start"
         android:layout_margin="16dp"
         app:srcCompat="@android:drawable/ic_input_add"/>
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnHistory"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="저장 내역 보기"
+        style="?attr/materialButtonOutlinedStyle"
+        android:layout_margin="12dp"/>
     
 </FrameLayout>

@@ -23,4 +23,22 @@
         android:id="@+id/settingsFragment"
         android:name="com.bignerdranch.android.myapplication.ui.SettingsFragment"
         android:label="설정" />
+
+    <fragment
+        android:id="@+id/countryHistoryFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.catalog.CountryHistoryFragment"
+        android:label="나라별 저장 내역">
+        <argument
+            android:name="country"
+            app:argType="string" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/historyDetailFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.history.HistoryDetailFragment"
+        android:label="저장 상세">
+        <argument
+            android:name="sessionId"
+            app:argType="long" />
+    </fragment>
 </navigation>

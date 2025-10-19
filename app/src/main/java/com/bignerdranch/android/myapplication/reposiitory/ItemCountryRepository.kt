@@ -156,4 +156,25 @@ class ItemCountryRepository(
     fun getAllCountryNames(): kotlinx.coroutines.flow.Flow<List<String>> =
         dao.getAllCountryNames()
 
+    suspend fun getHaveNow(itemId: Long, countryId: Long): Int {
+        return dao.getHave(itemId, countryId) ?: 0
+    }
+    suspend fun logPlusEvent(
+        itemId: Long,
+        countryId: Long?,   // 나라별이면 넣고, 전체면 null 가능
+        fromHave: Int,
+        toHave: Int,
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+       val log = QuantityLogEntity(
+           itemId = itemId,
+           countryId = countryId,
+           fromHave = fromHave,
+           toHave = toHave,
+           delta = toHave - fromHave, // 보통 1
+           timestamp = timestamp
+       )
+        dao.insertQuantityLog(log)
+    }
+
 }
