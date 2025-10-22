@@ -276,7 +276,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     archiveDao.insertLines(shipLines)
                 }
 
-                itemDao.deleteQuantityLogsByCountry(country)
+                val countryId = itemDao.getCountryIdByName(country) ?: continue
+                itemDao.markQuantityLogsArchivedByCountry(countryId)
                 itemDao.resetHaveByCountry(country)
                 saveAny = true
             }

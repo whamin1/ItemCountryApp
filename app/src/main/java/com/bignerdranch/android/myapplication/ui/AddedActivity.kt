@@ -1,8 +1,6 @@
-// AddedActivity.kt (전체를 이걸로 교체해도 됨)
 package com.bignerdranch.android.myapplication.ui
 
 import android.os.Bundle
-import android.provider.ContactsContract
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -37,7 +35,7 @@ class AddedActivity : AppCompatActivity() {
 
     private fun loadAndSubmit(adapter: QuantityBatchAdapter){
         lifecycleScope.launch {
-            val rows = dao.getRecentQuantityLogs(200)   // ← 새로 만든 쿼리 호출
+            val rows: List<ItemCountryDao.HistoryRow> = dao.getHistoryRowsNoDelta(200)   // ← 새로 만든 쿼리 호출
             val batches = buildBatches(rows)
             adapter.submit(batches)
         }
@@ -48,11 +46,11 @@ class AddedActivity : AppCompatActivity() {
         val country: String,
         val no: Int,                     // 1차, 2차…
         val label: String,               // 시간 라벨 // 배치 내 delta 합
-        val items: List<ItemCountryDao.QuantityRow>,
-        val sumDelta: Int
+        val items: List<ItemCountryDao.HistoryRow>,
+        val totalCount: Int
     )
 
-    private fun buildBatches(rows: List<ItemCountryDao.QuantityRow>): List<CountryBatch> {
+    private fun buildBatches(rows: List<ItemCountryDao.HistoryRow>): List<CountryBatch> {
         if (rows.isEmpty()) return emptyList()
 
         val byCountry = rows.groupBy { it.country }
@@ -93,7 +91,7 @@ class AddedActivity : AppCompatActivity() {
                     no = no,
                     label = "$country · $caption · $timeLabel",
                     items = items,
-                    sumDelta = items.sumOf { it.delta }
+                    totalCount = items.size
                 )
             }
         }
@@ -115,16 +113,28 @@ class AddedActivity : AppCompatActivity() {
         override fun onBindViewHolder(h: VH, pos: Int) {
             val b = data[pos]
             val sb = StringBuilder()
-            sb.append("【${b.label}】 합계 +${b.sumDelta}\n")
+            sb.append("【${b.label}】 합계 +${b.totalCount}\n")
             b.items.forEach { r ->
+                val diff = r.toHave - r.fromHave        // ✅ delta 없이 실시간 계산
+                val sign = when {
+                    diff > 0 -> "＋"
+                    diff < 0 -> "−"
+                    else -> "±"
+                }
                 // 예: 25/09/25 10:30  사과·한국  1 → 3 (+2)
-                sb.append(" - ${fmt.format(Date(r.timestamp))}  ${r.item}·${r.country}  ${r.fromHave} → ${r.toHave}  (＋${r.delta})\n")
+                sb.append(" - ${fmt.format(Date(r.timestamp))}  ${r.item}·${r.country}  ${r.fromHave} → ${r.toHave}  (＋${diff})\n")
             }
             h.tv.text = sb.toString().trimEnd()
 
             h.itemView.setOnLongClickListener {
                 val labels = b.items.map { r ->
-                    "${fmt.format(Date(r.timestamp))}  ${r.item}·${r.country}  ${r.fromHave} → ${r.toHave}  (＋${r.delta})"
+                    val diff = r.toHave - r.fromHave        // ✅ delta 없이 실시간 계산
+                    val sign = when {
+                        diff > 0 -> "＋"
+                        diff < 0 -> "−"
+                        else -> "±"
+                    }
+                    "${fmt.format(Date(r.timestamp))}  ${r.item}·${r.country}  ${r.fromHave} → ${r.toHave}  (＋${diff})"
                 }.toTypedArray()
 
                 AlertDialog.Builder(this@AddedActivity)

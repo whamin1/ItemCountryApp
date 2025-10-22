@@ -2,6 +2,7 @@ package com.bignerdranch.android.myapplication.data.local.dao
 
 import androidx.room.Dao
 import androidx.room.Embedded
+import androidx.room.Entity
 import androidx.room.Insert
 import androidx.room.Junction
 import androidx.room.OnConflictStrategy
@@ -135,7 +136,7 @@ ORDER BY i.name, c.name
     suspend fun getHave(itemId: Long, countryId: Long): Int?
 
     @Insert
-    suspend fun insertQuantityLog(log: QuantityLogEntity)
+    suspend fun insertQuantityLog(log: QuantityLogEntity): Long
 
     // 3) (선택) 특정 링크의 로그 조회 - 최신순
     @Query("""
@@ -147,28 +148,33 @@ ORDER BY i.name, c.name
     suspend fun getQuantityLogs(itemId: Long, countryId: Long, limit: Int = 50): List<QuantityLogEntity>
 
     data class AdditionRow(
+        val id: Long = 0L,
         val item: String = "",
         val country: String = "",
         val needed: Int = 0,
         val have: Int = 0,
-        val timestamp: Long = 0L
+        val timestamp: Long = 0L,
+        val batchId: Long = 0L
     )
 
     @Insert
     suspend fun insertAdditionLog(log: List<AdditionLogEntity>)
 
     @Query("""
-        SELECT i.name AS item,
-               c.name AS country,
-               al.needed AS needed,
-               al.have AS have,
-               al.timestamp AS timestamp
-        FROM addition_log al
-        JOIN items i ON i.id = al.itemId
-        JOIN countries c ON c.id = al.countryId
-        ORDER BY timestamp DESC
-        LIMIT :limit
-    """)
+    SELECT a.id AS id,
+           i.name AS item,
+           c.name AS country,
+           a.needed AS needed,
+           a.have   AS have,
+           a.timestamp AS timestamp,
+           0 AS batchId
+    FROM addition_log a
+    JOIN items i     ON i.id = a.itemId
+    JOIN countries c ON c.id = a.countryId
+    ORDER BY a.timestamp DESC
+    LIMIT :limit
+""")
+
     suspend fun getRecentAdditions(limit: Int = 200): List<AdditionRow>
 
     data class QuantityRow(
@@ -182,22 +188,71 @@ ORDER BY i.name, c.name
         val batchId: Long = 0L
     )
 
+    data class HistoryRow(
+        val id: Long = 0L,
+        val item: String = "",
+        val country: String = "",
+        val fromHave: Int = 0,
+        val toHave: Int = 0,
+        val timestamp: Long = 0L,
+        val batchId: Long = 0L
+    )
+
+    // 저장 로그 전용 (배치가 있는 것만 보이게)
     @Query("""
-    SELECT q. id AS id, 
-            i.name AS item,
+    SELECT q.id AS id,
+           i.name AS item,
            c.name AS country,
            q.fromHave AS fromHave,
            q.toHave AS toHave,
            q.delta AS delta,
            q.timestamp AS timestamp,
-           q.batchId AS batchId
+           COALESCE(q.batchId, 0) AS batchId
     FROM quantity_log q
     JOIN items i ON i.id = q.itemId
     JOIN countries c ON c.id = q.countryId
+    WHERE COALESCE(q.batchId, 0) > 0
     ORDER BY q.timestamp DESC
     LIMIT :limit
 """)
     suspend fun getRecentQuantityLogs(limit: Int = 200): List<QuantityRow>
+
+    @Query("""
+    SELECT q.id AS id,
+           i.name AS item,
+           c.name AS country,
+           q.fromHave AS fromHave,
+           q.toHave AS toHave,
+           q.timestamp AS timestamp,
+           COALESCE(q.batchId, 0) AS batchId
+    FROM quantity_log q
+    JOIN items i ON i.id = q.itemId
+    JOIN countries c ON c.id = q.countryId
+    WHERE COALESCE(q.batchId, 0) > 0
+    ORDER BY q.timestamp DESC
+    LIMIT :limit
+""")
+    suspend fun getHistoryRowsNoDelta(limit: Int = 200): List<HistoryRow>
+
+    // 아이템 탭: [+ 클릭]만 보기 (delta > 0, batchId = 0 또는 NULL)
+    @Query("""
+    SELECT q.id AS id,
+           i.name AS item,
+           c.name AS country,
+           q.fromHave AS fromHave,
+           q.toHave AS toHave,
+           q.delta AS delta,
+           q.timestamp AS timestamp,
+           COALESCE(q.batchId, 0) AS batchId
+    FROM quantity_log q
+    JOIN items i ON i.id = q.itemId
+    JOIN countries c ON c.id = q.countryId
+    WHERE q.delta > 0
+      AND COALESCE(q.batchId, 0) = 0
+    ORDER BY q.timestamp DESC
+    LIMIT :limit
+""")
+    suspend fun getRecentPlusClicks(limit: Int = 200): List<QuantityRow>
 
     @Query("DELETE FROM quantity_log WHERE id = :id")
     suspend fun deleteQuantityLogById(id: Long)
@@ -237,7 +292,7 @@ SELECT q.id AS id,
        q.toHave AS toHave,
        q.delta AS delta,
        q.timestamp AS timestamp,
-       q.batchId AS batchId
+       0 AS batchId
 FROM quantity_log q
 JOIN items i ON i.id = q.itemId
 JOIN countries c ON c.id = q.countryId
@@ -291,7 +346,7 @@ LIMIT :limit
 SELECT i.name AS item, ic.have AS have
 FROM item_country ic
 JOIN items i ON i.id = ic.itemId
-JOIN countries c ON c.id = c.id
+JOIN countries c ON c.id = ic.countryId
 WHERE c.name = :country
 """)
     suspend fun getHaveByCountry(country: String): List<HaveRow>
@@ -300,6 +355,9 @@ WHERE c.name = :country
         val item: String,
         val have: Int
     )
+
+    @Query("UPDATE quantity_log SET archived = 1 WHERE countryId = :countryId")
+    suspend fun markQuantityLogsArchivedByCountry(countryId: Long)
 
 }
 

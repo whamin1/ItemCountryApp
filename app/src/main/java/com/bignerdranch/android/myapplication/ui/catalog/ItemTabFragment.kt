@@ -2,7 +2,6 @@ package com.bignerdranch.android.myapplication.ui.catalog
 
 import android.os.Bundle
 import android.view.View
-import android.view.ViewGroup
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -11,62 +10,64 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.*
 
-class ItemTabFragment : Fragment(R.layout.fragment_simple_list) {
+/**
+ * 아이템 탭 = “버튼 + 로 증가한 수량 로그” 전용 화면
+ * - quantity_log 를 JOIN 한 Row 사용
+ * - delta > 0 만 필터링해서 표시
+ * - 최근순
+ */
+class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
+    private val fmt = SimpleDateFormat("yy/MM/dd HH:mm", Locale.getDefault())
     private val dao by lazy { AppDatabase.get(requireContext()).itemCountryDao() }
 
+    private lateinit var recycler: RecyclerView
+    private lateinit var adapter: PlusLogAdapter
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        val rv = view.findViewById<RecyclerView>(R.id.rv)
-        rv.layoutManager = LinearLayoutManager(requireContext())
-        val adapter = ItemOutflowAdapter()
-        rv.adapter = adapter
+        super.onViewCreated(view, savedInstanceState)
 
+        recycler = view.findViewById(R.id.recycler)
+        recycler.layoutManager = LinearLayoutManager(requireContext())
+        adapter = PlusLogAdapter()
+        recycler.adapter = adapter
 
+        // 최근 로그 불러오되, delta > 0 (버튼 + 로 증가한 것만) 필터
         viewLifecycleOwner.lifecycleScope.launch {
-            val since30d = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
-            val rows = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                // ✅ 아카이브 포함 집계
-                dao.getArchivedOutflowAllTimeIncludingZero()
-
-
-            }
-            android.util.Log.d("OUTFLOW", "rows=${rows.size}, first=${rows.firstOrNull()}")
+            val rows = dao.getRecentPlusClicks(300) // 필요하면 개수 조절
+                .filter { it.delta > 0 }             // ← 핵심: 플러스만 보기
             adapter.submit(rows)
         }
     }
 
-    private class ItemOutflowAdapter :
-        RecyclerView.Adapter<ItemOutflowAdapter.VH>() {
+    private inner class PlusLogAdapter : RecyclerView.Adapter<VH>() {
+        private val data = mutableListOf<ItemCountryDao.QuantityRow>()
 
-        private val data = mutableListOf<ItemCountryDao.ItemOutflowRow>()
-
-        fun submit(list: List<ItemCountryDao.ItemOutflowRow>) {
-            data.clear(); data.addAll(list); notifyDataSetChanged()
+        fun submit(list: List<ItemCountryDao.QuantityRow>) {
+            data.apply { clear(); addAll(list) }
+            notifyDataSetChanged()
         }
 
-        override fun onCreateViewHolder(p: ViewGroup, t: Int): VH {
-            val v = android.view.LayoutInflater.from(p.context)
-                .inflate(R.layout.item_simple_row, p, false)
+        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): VH {
+            val v = layoutInflater.inflate(R.layout.item_added_row, parent, false)
             return VH(v)
         }
 
-        override fun onBindViewHolder(h: VH, pos: Int) {
-            val row = data[pos]
-            val absOut = -row.totalOut // 음수 → 양수로 보여주기
-            // 0이면 "-0개" 대신 "0개"로 표기
-            val text = "${row.item}  →  -${absOut}개"
+        override fun getItemCount(): Int = data.size
 
-            h.tv.text = text
+        override fun onBindViewHolder(holder: VH, position: Int) {
+            val r = data[position]
+            // 예: 25/10/19 09:42   사과 · 한국   3 → 5  (+2)
+            holder.tv.text =
+                "${fmt.format(Date(r.timestamp))}   ${r.item} · ${r.country}   ${r.fromHave} → ${r.toHave}  (＋${r.delta})"
         }
+    }
 
-        override fun getItemCount() = data.size
-
-        class VH(v: View) : RecyclerView.ViewHolder(v) {
-            val tv: TextView = v.findViewById(R.id.tvRow)
-        }
+    private class VH(v: View) : RecyclerView.ViewHolder(v) {
+        val tv: TextView = v.findViewById(R.id.tvRow)
     }
 }
