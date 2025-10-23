@@ -273,13 +273,23 @@ ORDER BY i.name, c.name
         suspend fun getSessionsByCountry(country: String): List<SaveSessionEntity>
         @Query("SELECT * FROM save_session_line WHERE sessionId = :sessionId ORDER BY timestamp DESC")
         suspend fun getLines(sessionId: Long): List<SaveSessionLineEntity>
-        @Query("SELECT * FROM save_session_line WHERE sessionId = :sessionId AND country = :country ORDER BY timestamp DESC")
+        @Query("SELECT * FROM save_session_line WHERE sessionId = :sessionId AND country = :country AND COALESCE(batchId, 0) > 0 ORDER BY timestamp DESC")
         suspend fun getLinesByCountry(sessionId: Long, country: String): List<SaveSessionLineEntity>
+
+        @Query("""
+  SELECT *
+  FROM save_session_line
+  WHERE sessionId = :sessionId
+    AND COALESCE(batchId, 0) > 0      -- ✅ 저장 로그만
+  ORDER BY timestamp DESC
+""")
+        suspend fun getLinesExcludeClicks(sessionId: Long): List<SaveSessionLineEntity>
     }
 
     @Query("""
 DELETE FROM quantity_log
 WHERE countryId IN (SELECT id FROM countries WHERE name = :country)
+AND COALESCE(batchId, 0) > 0
 """)
     suspend fun deleteQuantityLogsByCountry(country: String)
 
@@ -292,7 +302,7 @@ SELECT q.id AS id,
        q.toHave AS toHave,
        q.delta AS delta,
        q.timestamp AS timestamp,
-       0 AS batchId
+       COALESCE(q.batchId, 0) AS batchId
 FROM quantity_log q
 JOIN items i ON i.id = q.itemId
 JOIN countries c ON c.id = q.countryId

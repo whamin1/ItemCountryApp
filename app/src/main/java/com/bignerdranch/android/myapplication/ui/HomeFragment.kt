@@ -229,65 +229,78 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
     private fun saveSelectedCountries(selectedCountries: List<String>) {
         viewLifecycleOwner.lifecycleScope.launch {
-            var saveAny = false
+            var didAnything = false
             val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+
             for (country in selectedCountries) {
-                val rows = itemDao.getQuantityLogsByCountry(country, 1000)
-                if (rows.isEmpty()) continue
+                // 1) 해당 나라 로그/재고 미리 읽기
+                val rows = itemDao.getQuantityLogsByCountry(country, 1000)   // 보관할 로그(없을 수도 있음)
+                val stocks = itemDao.getHaveByCountry(country)               // 현재 재고(0일 수도 있음)
 
-                val sessionId = archiveDao.insertSession(
-                    SaveSessionEntity(
-                        title = "$country · ${fmt.format(Date())}", country = country,
-                        createdAt = System.currentTimeMillis()
-                    )
-                )
-                archiveDao.insertLines(
-                    rows.map { r ->
-                        SaveSessionLineEntity(
-                            sessionId = sessionId,
-                            batchId = r.batchId,
-                            country = r.country,
-                            item = r.item,
-                            fromHave = r.fromHave,
-                            toHave = r.toHave,
-                            delta = r.delta,
-                            timestamp = r.timestamp
-                        )
-                    }
-                )
-
-                val stocks = itemDao.getHaveByCountry(country)
-                val shipLines = stocks
-                    .filter { it.have > 0 }
-                    .map{ s ->
-                        SaveSessionLineEntity(
-                            id = 0,
-                            sessionId = sessionId,
-                            batchId = 0L,
+                // 2) 필요하면 세션(보관본) 만들기: '로그가 있거나' '재고가 있으면' 보관
+                if (rows.isNotEmpty() || stocks.any { it.have > 0 }) {
+                    val sessionId = archiveDao.insertSession(
+                        SaveSessionEntity(
+                            title = "$country · ${fmt.format(Date())}",
                             country = country,
-                            item = s.item,
-                            fromHave = s.have,
-                            toHave = 0,
-                            delta = -s.have,
-                            timestamp = System.currentTimeMillis()
+                            createdAt = System.currentTimeMillis()
+                        )
+                    )
+
+                    // (2-1) 로그 라인 백업
+                    if (rows.isNotEmpty()) {
+                        archiveDao.insertLines(
+                            rows.map { r ->
+                                SaveSessionLineEntity(
+                                    sessionId = sessionId,
+                                    batchId = r.batchId,
+                                    country = r.country,
+                                    item = r.item,
+                                    fromHave = r.fromHave,
+                                    toHave = r.toHave,
+                                    delta = r.delta,
+                                    timestamp = r.timestamp
+                                )
+                            }
                         )
                     }
-                if (shipLines.isNotEmpty()) {
-                    archiveDao.insertLines(shipLines)
+
+                    // (2-2) 재고 스냅샷(0으로 내릴 '선적' 라인) 백업
+                    val shipLines = stocks
+                        .filter { it.have > 0 }
+                        .map { s ->
+                            SaveSessionLineEntity(
+                                id = 0,
+                                sessionId = sessionId,
+                                batchId = 0L,
+                                country = country,
+                                item = s.item,
+                                fromHave = s.have,
+                                toHave = 0,
+                                delta = -s.have,
+                                timestamp = System.currentTimeMillis()
+                            )
+                        }
+                    if (shipLines.isNotEmpty()) {
+                        archiveDao.insertLines(shipLines)
+                    }
                 }
 
+                // 3) 여기서는 **항상** 초기화 수행 (로그가 없어도 리셋하자)
                 val countryId = itemDao.getCountryIdByName(country) ?: continue
-                itemDao.markQuantityLogsArchivedByCountry(countryId)
-                itemDao.resetHaveByCountry(country)
-                saveAny = true
+                itemDao.markQuantityLogsArchivedByCountry(countryId) // 있으면 archived=1, 없으면 영향 없음
+                itemDao.resetHaveByCountry(country)                  // ✅ 재고 0으로
+                itemDao.deleteQuantityLogsByCountry(country)
+
+                didAnything = true
             }
-            if (saveAny) {
-                // 화면 임시값 정리(안 하면 라벨이 예전 숫자일 수 있음)
+
+            if (didAnything) {
                 pending.clear()
                 adapter.setTempSnapshot(emptyMap(), isCountryMode.value)
-                Toast.makeText(requireContext(), "보관 완료 · 선택한 나라 초기화", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "보관/초기화 완료", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(requireContext(), "보관할 로그가 없습니다.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "선택한 나라에 처리할 내용이 없습니다.", Toast.LENGTH_SHORT).show()
             }
         }
     }

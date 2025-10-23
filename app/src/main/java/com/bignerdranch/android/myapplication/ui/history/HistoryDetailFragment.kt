@@ -34,7 +34,7 @@ class HistoryDetailFragment : Fragment(R.layout.fragment_history_detail) {
 
         viewLifecycleOwner.lifecycleScope.launch {
             // 1) 라인 로드
-            val lines = dao.getLines(sessionId)
+            val lines = dao.getLinesExcludeClicks(sessionId)
 
             // 2) batchId(회차)별로 묶고 최신이 위로 오도록
             val grouped = lines.groupBy { it.batchId }
