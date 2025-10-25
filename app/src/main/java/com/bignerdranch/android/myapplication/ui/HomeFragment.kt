@@ -32,11 +32,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.text.TextWatcher
+import android.util.Log
 import androidx.appcompat.widget.Toolbar
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.text.SimpleDateFormat
@@ -652,6 +654,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val rbCountryToItems = dialogView.findViewById<RadioButton>(R.id.rbCountryToItems)
         val etHead = dialogView.findViewById<EditText>(R.id.etHead)
         val etList = dialogView.findViewById<EditText>(R.id.etList)
+        val etWeight = dialogView.findViewById<EditText>(R.id.etWeight)
+        val etPrice = dialogView.findViewById<EditText>(R.id.etPrice)
 
         AlertDialog.Builder(requireContext())
             .setTitle("추가하기")
@@ -659,30 +663,38 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             .setPositiveButton("추가") { dialog, _ ->
                 val head = etHead.text.toString().trim()
                 val parsed = parseListWithNumbers(etList.text.toString())
+                val weight = etWeight.text.toString().toFloatOrNull() ?: 0f
+                val price = etPrice.text.toString().toFloatOrNull() ?: 0f
 
                 if (head.isEmpty() || parsed.isEmpty()) {
                     Toast.makeText(requireContext(), "머리와 목록을 입력하세요.", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
 
-                if (rbItemToCountries.isChecked) {
-                    // 아이템 → 나라들
-                    val countryNames = parsed.map { it.first }
-                    vm.addItems(mapOf(head to countryNames)) // 링크 0으로 생성
-                    parsed.forEach { (country, have) ->
-                        vm.updateQuantity(head, country, needed = 0, have = have)
-                    }
-                } else {
-                    // 나라 → 아이템들
-                    val itemNames = parsed.map { it.first }
-                    val map = itemNames.associateWith { listOf(head) }
-                    vm.addItems(map) // 링크 0으로 생성
-                    parsed.forEach { (item, have) ->
-                        vm.updateQuantity(item, head, needed = 0, have = have)
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (rbItemToCountries.isChecked) {
+                        // 아이템 → 나라들
+                        val countryNames = parsed.map { it.first }
+                        vm.addItemsSuspend(mapOf(head to countryNames))
+                        parsed.forEach { (country, have) ->
+                            vm.updateQuantity(head, country, needed = 0, have = have)
+                            vm.updateWeightAndPrice(head, country, weight, price)
+                        }
+                    } else {
+                        // 나라 → 아이템들
+                        val itemNames = parsed.map { it.first }
+                        val map = itemNames.associateWith { listOf(head) }
+                        vm.addItemsSuspend(map) // 링크 0으로 생성
+                        parsed.forEach { (item, have) ->
+                            vm.updateQuantity(item, head, needed = 0, have = have)
+                            vm.updateWeightAndPrice(item, head, weight, price)
+                        }
                     }
                 }
 
+
                 Toast.makeText(requireContext(), "추가 완료!", Toast.LENGTH_SHORT).show()
+                Log.d("AddDialog", "🧾 저장 요청: $head weight=$weight price=$price")
                 dialog.dismiss()
             }
             .setNegativeButton("취소", null)

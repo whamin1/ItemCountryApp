@@ -61,9 +61,11 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val r = data[position]
-            // 예: 25/10/19 09:42   사과 · 한국   3 → 5  (+2)
+            val weightStr = if (r.weight > 0f) " / ${r.weight}kg" else ""
+            val priceStr = if (r.price > 0f) " / ${java.text.NumberFormat.getInstance().format(r.price)}" else ""
+
             holder.tv.text =
-                "${fmt.format(Date(r.timestamp))}   ${r.item} · ${r.country}   ${r.fromHave} → ${r.toHave}  (＋${r.delta})"
+                "${fmt.format(Date(r.timestamp))} ${r.item} · ${r.country}$weightStr$priceStr"
         }
     }
 

@@ -95,6 +95,14 @@ interface ItemCountryDao {
     @Query("SELECT id FROM countries WHERE name = :name LIMIT 1")
     suspend fun getCountryIdByName(name: String): Long?
 
+
+    @Query("""
+        UPDATE item_country
+        SET weight = :weight, price = :price
+        WHERE itemId = (SELECT id FROM items WHERE name = :item)
+        AND countryId = (SELECT id FROM countries WHERE name = :country)
+    """)
+    suspend fun updateWeightAndPrice(item: String, country: String, weight: Float, price: Float)
     @Query("DELETE FROM item_country WHERE itemId = :itemId AND countryId = :countryId")
     suspend fun deleteLink(itemId: Long, countryId: Long)
 
@@ -185,7 +193,9 @@ ORDER BY i.name, c.name
         val toHave: Int = 0,
         val delta: Int = 0,
         val timestamp: Long = 0L,
-        val batchId: Long = 0L
+        val batchId: Long = 0L,
+        val weight: Float,
+        val price: Float
     )
 
     data class HistoryRow(
@@ -207,10 +217,13 @@ ORDER BY i.name, c.name
            q.toHave AS toHave,
            q.delta AS delta,
            q.timestamp AS timestamp,
-           COALESCE(q.batchId, 0) AS batchId
+           COALESCE(q.batchId, 0) AS batchId,
+           ic.weight AS weight,
+           ic.price AS price
     FROM quantity_log q
     JOIN items i ON i.id = q.itemId
     JOIN countries c ON c.id = q.countryId
+    JOIN item_country ic ON ic.itemId = q.itemId AND ic.countryId = q.countryId
     WHERE COALESCE(q.batchId, 0) > 0
     ORDER BY q.timestamp DESC
     LIMIT :limit
@@ -243,10 +256,13 @@ ORDER BY i.name, c.name
            q.toHave AS toHave,
            q.delta AS delta,
            q.timestamp AS timestamp,
-           COALESCE(q.batchId, 0) AS batchId
+           COALESCE(q.batchId, 0) AS batchId,
+           ic.weight AS weight,
+           ic.price AS price
     FROM quantity_log q
     JOIN items i ON i.id = q.itemId
     JOIN countries c ON c.id = q.countryId
+    JOIN item_country ic ON ic.itemId = q.itemId AND ic.countryId = q.countryId
     WHERE q.delta > 0
       AND COALESCE(q.batchId, 0) = 0
     ORDER BY q.timestamp DESC
@@ -302,10 +318,13 @@ SELECT q.id AS id,
        q.toHave AS toHave,
        q.delta AS delta,
        q.timestamp AS timestamp,
-       COALESCE(q.batchId, 0) AS batchId
+       0 AS batchId,
+       ic.weight AS weight,           -- ✅ 추가
+       ic.price  AS price             -- ✅ 추가
 FROM quantity_log q
-JOIN items i ON i.id = q.itemId
+JOIN items i     ON i.id = q.itemId
 JOIN countries c ON c.id = q.countryId
+JOIN item_country ic ON ic.itemId = q.itemId AND ic.countryId = q.countryId   -- ✅ 조인 추가
 WHERE c.name = :country
 ORDER BY q.timestamp DESC
 LIMIT :limit
@@ -368,6 +387,8 @@ WHERE c.name = :country
 
     @Query("UPDATE quantity_log SET archived = 1 WHERE countryId = :countryId")
     suspend fun markQuantityLogsArchivedByCountry(countryId: Long)
+
+
 
 }
 

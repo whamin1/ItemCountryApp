@@ -81,7 +81,9 @@ class CountryFragment : Fragment(R.layout.fragment_country) {
             .setView(et)
             .setPositiveButton("추가") { _, _ ->
                 val item = et.text.toString().trim()
-                if (item.isNotEmpty()) vm.addItems(mapOf(item to listOf(country)))
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (item.isNotEmpty()) vm.addItemsSuspend(mapOf(item to listOf(country)))
+                }
             }
             .setNegativeButton("취소", null)
             .show()

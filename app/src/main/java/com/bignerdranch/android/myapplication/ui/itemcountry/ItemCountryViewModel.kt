@@ -90,8 +90,8 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun addItems(items: Map<String, List<String>>) {
-        viewModelScope.launch { repo.addItems(items) }
+    suspend fun addItemsSuspend(items: Map<String, List<String>>) {
+        repo.addItems(items)
     }
 
     fun addCountries(item: String, vararg countries: String) {
@@ -129,6 +129,12 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val rows = repo.getRecentAdditions(limit)
             onResult(rows)
+        }
+    }
+
+    fun updateWeightAndPrice(item: String, country: String, weight: Float, price: Float) {
+        viewModelScope.launch {
+            repo.updateWeightAndPrice(item, country, weight, price)
         }
     }
 

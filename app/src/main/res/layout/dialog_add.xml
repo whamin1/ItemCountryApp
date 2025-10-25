@@ -38,4 +38,18 @@
         android:layout_height="wrap_content"
         android:hint="콤마(,)로 구분해 여러 개 입력"
         android:inputType="text" />
+
+    <EditText
+        android:id="@+id/etWeight"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="무게"
+        android:inputType="numberDecimal" />
+
+    <EditText
+        android:id="@+id/etPrice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="가격"
+        android:inputType="numberDecimal" />
 </LinearLayout>

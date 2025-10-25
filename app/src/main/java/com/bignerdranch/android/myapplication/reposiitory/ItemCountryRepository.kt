@@ -177,4 +177,8 @@ class ItemCountryRepository(
         dao.insertQuantityLog(log)
     }
 
+    suspend fun updateWeightAndPrice(item: String, country: String, weight: Float, price: Float) {
+        dao.updateWeightAndPrice(item, country, weight, price)
+    }
+
 }

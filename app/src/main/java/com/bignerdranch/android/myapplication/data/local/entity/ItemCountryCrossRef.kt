@@ -13,5 +13,7 @@ data class ItemCountryCrossRef(
     val itemId: Long = 0L,
     val countryId: Long = 0L,
     val needed: Int = 0,
-    val have: Int = 0
+    val have: Int = 0,
+    var weight: Float = 0f,
+    var price: Float = 0f
 )
