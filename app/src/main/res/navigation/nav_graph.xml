@@ -9,10 +9,10 @@
         android:name="com.bignerdranch.android.myapplication.ui.HomeFragment"
         android:label="홈" />
 
-<!--    <fragment-->
-<!--        android:id="@+id/addedFragment"-->
-<!--        android:name="com.bignerdranch.android.myapplication.ui.AddedFragment"-->
-<!--        android:label="추가목록" />-->
+    <fragment
+        android:id="@+id/sheetsFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.SheetsFragment"
+        android:label="시트" />
 
     <fragment
         android:id="@+id/catalogFragment"

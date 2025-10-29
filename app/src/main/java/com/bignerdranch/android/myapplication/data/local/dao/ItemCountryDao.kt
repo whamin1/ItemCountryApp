@@ -18,6 +18,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import kotlinx.coroutines.flow.Flow
 
 /* -------- 관계 DTO -------- */
@@ -389,6 +391,45 @@ WHERE c.name = :country
     suspend fun markQuantityLogsArchivedByCountry(countryId: Long)
 
 
+    data class SheetWithLines(
+        @Embedded val sheet: SheetEntity,
+        @Relation(
+            parentColumn = "id",
+            entityColumn = "sheetId",
+            entity = SheetLineEntity::class
+        )
+        val lines: List<SheetLineEntity>
+    )
+
+    @Dao
+    interface SheetDao {
+        @Insert
+        suspend fun insertSheet(sheet: SheetEntity): Long
+
+        @Insert
+        suspend fun insertSheetLines(lines: List<SheetLineEntity>)
+
+        @Query("SELECT * FROM sheets WHERE hidden = 0 ORDER BY createdAt DESC")
+        fun observeVisibleSheets(): Flow<List<SheetEntity>>
+
+        @Query("SELECT * FROM sheets ORDER BY createdAt DESC")
+        fun observeAllSheets(): Flow<List<SheetEntity>>
+
+        @Query("SELECT * FROM sheet_lines WHERE sheetId = :sheetId ORDER BY item, country")
+        suspend fun getSheetLines(sheetId: Long): List<SheetLineEntity>
+
+        @Query("UPDATE sheets SET hidden = :hidden WHERE id = :sheetId")
+        suspend fun setSheetHidden(sheetId: Long, hidden: Boolean)
+
+        @Query("DELETE FROM sheet_lines WHERE sheetId = :sheetId")
+        suspend fun deleteSheetLinesBySheet(sheetId: Long)
+
+        @Query("DELETE FROM sheets WHERE id = :sheetId")
+        suspend fun deleteSheetById(sheetId: Long)
+        @Transaction
+        @Query("SELECT * FROM sheets ORDER BY createdAt DESC")
+        fun observeSheetsWithLines(): Flow<List<SheetWithLines>>
+    }
 
 }
 

@@ -1,4 +1,3 @@
-// ItemCountryViewModel.kt
 package com.bignerdranch.android.myapplication.ui.itemcountry
 
 import android.app.Application
@@ -7,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -15,11 +16,11 @@ import kotlinx.coroutines.withContext
 
 class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val repository: ItemCountryRepository by lazy {
+    val repository: ItemCountryRepository by lazy {
         val db = AppDatabase.get(app)
-        ItemCountryRepository(db.itemCountryDao())
+        ItemCountryRepository(db.itemCountryDao(), db.sheetDao())
     }
-    private val repo: ItemCountryRepository
+    private var repo: ItemCountryRepository = repository
 
 
     // 1) 아이템 -> 나라
@@ -31,9 +32,10 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     val uiStateItemQty: StateFlow<Map<String, List<ItemCountryRepository.CountryQty>>>
     val uiStateCountryQty: StateFlow<Map<String, List<ItemCountryRepository.CountryQty>>>
 
+
     init {
         val db = AppDatabase.get(app)
-        repo = ItemCountryRepository(db.itemCountryDao())
+        repo = ItemCountryRepository(db.itemCountryDao(), db.sheetDao())
 
         uiStateItem = repo.observeAll().stateIn(
             scope = viewModelScope,
@@ -152,5 +154,23 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    val sheets: Flow<List<SheetEntity>> = repo.observeSheets()
 
+    fun createSheet(title: String, lines: List<SheetLineEntity>) = viewModelScope.launch {
+        repo.createSheet(title, lines)
+    }
+
+    fun applySheet(sheetId: Long) = viewModelScope.launch {
+        repo.applySheet(sheetId)
+    }
+
+    fun toggleSheetHidden(sheetId: Long, hidden: Boolean) = viewModelScope.launch {
+        repo.toggleSheetHidden(sheetId, hidden)
+    }
+
+    fun deleteSheet(sheetId: Long) = viewModelScope.launch {
+        repo.deleteSheet(sheetId)
+    }
+
+    val sheetWithLines: Flow<List<ItemCountryDao.SheetWithLines>> = repo.observeSheetsWithLines()
 }

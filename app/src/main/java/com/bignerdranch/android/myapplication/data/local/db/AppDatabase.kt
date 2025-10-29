@@ -13,6 +13,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import java.util.concurrent.Executors
 
 @Database(
@@ -23,14 +25,18 @@ import java.util.concurrent.Executors
         QuantityLogEntity::class,
         AdditionLogEntity::class,
         SaveSessionEntity::class,
-        SaveSessionLineEntity::class
+        SaveSessionLineEntity::class,
+        SheetEntity::class,
+        SheetLineEntity::class
     ],
-    version = 12, // ✅ 버전만 올림 (예: 기존 11 → 12)
+    version = 13, // ✅ 버전만 올림 (예: 기존 11 → 12)
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun itemCountryDao(): ItemCountryDao
     abstract fun saveArchiveDao(): ItemCountryDao.SaveArchiveDao
+
+    abstract fun sheetDao(): ItemCountryDao.SheetDao
 
     companion object {
         @Volatile

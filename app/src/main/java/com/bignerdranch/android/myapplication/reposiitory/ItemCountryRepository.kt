@@ -6,13 +6,16 @@ import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class ItemCountryRepository(
-    private val dao: ItemCountryDao
+    private val dao: ItemCountryDao,
+    private val sheetDao: ItemCountryDao.SheetDao
 ) {
     /** Map<아이템명, 나라리스트> 한 방에 추가 */
     suspend fun addItems(items: Map<String, List<String>>) {
@@ -180,5 +183,47 @@ class ItemCountryRepository(
     suspend fun updateWeightAndPrice(item: String, country: String, weight: Float, price: Float) {
         dao.updateWeightAndPrice(item, country, weight, price)
     }
+
+    // 시트 만들기 (CSV 파싱 후 라인 리스트로 저장하는 용도)
+    suspend fun createSheet(title: String, lines: List<SheetLineEntity>): Long {
+        val sheetId = sheetDao.insertSheet(SheetEntity(title = title))
+        if (lines.isNotEmpty()) sheetDao.insertSheetLines(lines.map { it.copy(sheetId = sheetId) })
+        return sheetId
+    }
+
+    suspend fun toggleSheetHidden(sheetId: Long, hidden: Boolean) {
+        sheetDao.setSheetHidden(sheetId, hidden)
+    }
+
+    suspend fun deleteSheet(sheetId: Long) {
+        sheetDao.deleteSheetLinesBySheet(sheetId)
+        sheetDao.deleteSheetById(sheetId)
+    }
+
+    fun observeSheets() = sheetDao.observeAllSheets()
+
+    fun observeVisibleSheets(): Flow<List<SheetEntity>> = sheetDao.observeVisibleSheets()
+
+    // ✅ 핵심: 시트 “적용”
+    suspend fun applySheet(sheetId: Long) {
+        val lines = sheetDao.getSheetLines(sheetId)
+        if (lines.isEmpty()) return
+
+        // 1) 아이템 -> 나라 맵으로 묶어서 링크(0값) 먼저 생성
+        val itemToCountries: Map<String, List<String>> =
+            lines.groupBy({ it.item }, { it.country })
+
+        if (itemToCountries.isNotEmpty()) {
+            addItems(itemToCountries) // items/countries upsert + crossRef IGNORE
+        }
+
+        // 2) 각 라인의 수량/필요 업데이트
+        val batchId = System.currentTimeMillis()
+        for (ln in lines) {
+            updateQuantity(ln.item, ln.country, ln.needed, ln.have, batchId)
+        }
+    }
+
+    fun observeSheetsWithLines(): Flow<List<ItemCountryDao.SheetWithLines>> = sheetDao.observeSheetsWithLines()
 
 }
