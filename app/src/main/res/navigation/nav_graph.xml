@@ -12,7 +12,11 @@
     <fragment
         android:id="@+id/sheetsFragment"
         android:name="com.bignerdranch.android.myapplication.ui.SheetsFragment"
-        android:label="시트" />
+        android:label="시트" >
+        <action
+            android:id="@+id/action_sheetsFragment_to_sheetDetailFragment"
+            app:destination="@id/sheetDetailFragment" />
+    </fragment>
 
     <fragment
         android:id="@+id/catalogFragment"
@@ -32,6 +36,19 @@
             android:name="country"
             app:argType="string" />
     </fragment>
+
+    <fragment
+        android:id="@+id/sheetDetailFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.SheetDetailFragment"
+        android:label="시트 상세">
+        <argument
+            android:name="sheetId"
+            app:argType="long" />
+        <argument
+            android:name="title"
+            app:argType="string" />
+    </fragment>
+
 
     <fragment
         android:id="@+id/historyDetailFragment"

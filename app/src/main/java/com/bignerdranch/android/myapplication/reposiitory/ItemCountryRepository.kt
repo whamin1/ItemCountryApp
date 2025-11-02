@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.repository
 
+import android.util.Log
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.entity.AdditionLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
@@ -187,7 +188,13 @@ class ItemCountryRepository(
     // 시트 만들기 (CSV 파싱 후 라인 리스트로 저장하는 용도)
     suspend fun createSheet(title: String, lines: List<SheetLineEntity>): Long {
         val sheetId = sheetDao.insertSheet(SheetEntity(title = title))
-        if (lines.isNotEmpty()) sheetDao.insertSheetLines(lines.map { it.copy(sheetId = sheetId) })
+        if (lines.isNotEmpty()) {
+            val withId = lines.map { it.copy(sheetId = sheetId) }
+            sheetDao.insertSheetLines(withId)
+            val cnt = sheetDao.countLinesBySheetId(sheetId) // 혹은 countOrphans()로도 확인 가능
+            val orphans = sheetDao.countOrphans()
+            Log.d("SheetsDebug", "inserted=${withId.size}, countForSheet=$cnt, orphans=$orphans sheetId=$sheetId")
+        }
         return sheetId
     }
 
@@ -206,18 +213,29 @@ class ItemCountryRepository(
 
     // ✅ 핵심: 시트 “적용”
     suspend fun applySheet(sheetId: Long) {
+        val sheet = dao.getSheetById(sheetId) ?: return
         val lines = sheetDao.getSheetLines(sheetId)
         if (lines.isEmpty()) return
 
-        // 1) 아이템 -> 나라 맵으로 묶어서 링크(0값) 먼저 생성
-        val itemToCountries: Map<String, List<String>> =
-            lines.groupBy({ it.item }, { it.country })
-
-        if (itemToCountries.isNotEmpty()) {
-            addItems(itemToCountries) // items/countries upsert + crossRef IGNORE
+        if (sheet.hidden) {
+            // ✅ 비활성화된 시트면 기존 아이템-나라 링크 삭제
+            for (ln in lines) {
+                val itemId = dao.getItemIdByName(ln.item)
+                val countryId = dao.getCountryIdByName(ln.country)
+                if (itemId != null && countryId != null) {
+                    dao.deleteLinkByIds(itemId, countryId)
+                }
+            }
+            Log.d("SheetsDebug", "시트 ${sheet.title} 비활성화됨 → 아이템 삭제 완료")
+            return
         }
 
-        // 2) 각 라인의 수량/필요 업데이트
+        // ✅ 활성화된 경우 기존 적용 로직 수행
+        val itemToCountries = lines.groupBy({ it.item }, { it.country })
+        if (itemToCountries.isNotEmpty()) {
+            addItems(itemToCountries)
+        }
+
         val batchId = System.currentTimeMillis()
         for (ln in lines) {
             updateQuantity(ln.item, ln.country, ln.needed, ln.have, batchId)
@@ -225,5 +243,15 @@ class ItemCountryRepository(
     }
 
     fun observeSheetsWithLines(): Flow<List<ItemCountryDao.SheetWithLines>> = sheetDao.observeSheetsWithLines()
+
+    fun observeSheetLines(sheetId: Long) = dao.observeSheetLines(sheetId)
+
+    suspend fun updateSheetLine(line: SheetLineEntity) = dao.updateSheetLine(line)
+
+    suspend fun deleteSheetLine(line: SheetLineEntity) = dao.deleteSheetLine(line)
+
+    // (선택) 추가 버튼 쓸 거면
+    suspend fun insertSheetLine(sheetId: Long, line: SheetLineEntity) =
+        dao.insertSheetLine(line.copy(sheetId = sheetId))
 
 }

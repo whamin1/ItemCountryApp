@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <LinearLayout
+            android:orientation="vertical" android:padding="12dp"
+            android:layout_width="match_parent" android:layout_height="wrap_content">
+
+            <EditText android:id="@+id/etItem" android:hint="아이템" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <EditText android:id="@+id/etCountry" android:hint="나라" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+            <EditText android:id="@+id/etNeeded" android:hint="필요 수량(숫자)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <EditText android:id="@+id/etHave" android:hint="보유 수량(숫자)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+            <EditText android:id="@+id/etWeight" android:hint="무게(실수)" android:inputType="numberDecimal" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <EditText android:id="@+id/etPrice" android:hint="가격(숫자)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

@@ -75,11 +75,6 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
             repo.addItems(defaults) // suspend 호출, 여기서 완료까지 대기
         }
     }
-    fun seedIfEmpty(defaults: Map<String, List<String>>) {
-        viewModelScope.launch {
-            if (uiStateItem.value.isEmpty()) repo.addItems(defaults)
-        }
-    }
 
     // ⓐ 카탈로그 상단 탭용: 모든 나라 이름 Flow
     val allCountryNames: Flow<List<String>> =
@@ -173,4 +168,19 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val sheetWithLines: Flow<List<ItemCountryDao.SheetWithLines>> = repo.observeSheetsWithLines()
+
+    fun observeSheetLines(sheetId: Long) = repo.observeSheetLines(sheetId)
+
+    fun updateSheetLine(line: SheetLineEntity) = viewModelScope.launch {
+        repo.updateSheetLine(line)
+    }
+
+    fun deleteSheetLine(line: SheetLineEntity) = viewModelScope.launch {
+        repo.deleteSheetLine(line)
+    }
+
+    // (선택) 추가
+    fun insertSheetLine(sheetId: Long, line: SheetLineEntity) = viewModelScope.launch {
+        repo.insertSheetLine(sheetId, line)
+    }
 }

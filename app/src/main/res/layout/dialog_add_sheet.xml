@@ -24,7 +24,7 @@
 
         <EditText
             android:id="@+id/etLines"
-            android:hint="아이템, 필요, 보유, 무게, 가격"
+            android:hint="아이템, 필요, 무게, 가격"
             android:inputType="textMultiLine"
             android:minLines="6"
             android:layout_width="match_parent"

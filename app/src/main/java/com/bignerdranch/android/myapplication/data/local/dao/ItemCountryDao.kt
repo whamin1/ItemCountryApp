@@ -1,6 +1,7 @@
 package com.bignerdranch.android.myapplication.data.local.dao
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Insert
@@ -10,6 +11,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Relation
 import androidx.room.Transaction
+import androidx.room.Update
 import androidx.room.Upsert
 import com.bignerdranch.android.myapplication.data.local.entity.AdditionLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
@@ -429,7 +431,35 @@ WHERE c.name = :country
         @Transaction
         @Query("SELECT * FROM sheets ORDER BY createdAt DESC")
         fun observeSheetsWithLines(): Flow<List<SheetWithLines>>
+
+        @Query("SELECT COUNT(*) FROM sheet_lines WHERE sheetId = :sheetId")
+        suspend fun countLinesBySheetId(sheetId: Long): Int
+
+        @Query("SELECT COUNT(*) FROM sheet_lines WHERE sheetId = 0")
+        suspend fun countOrphans(): Int
+
+
     }
 
-}
+    @Query("SELECT * FROM sheets WHERE id = :sheetId LIMIT 1")
+    suspend fun getSheetById(sheetId: Long): SheetEntity?
 
+    @Query("SELECT * FROM sheet_lines WHERE sheetId = :sheetId")
+    suspend fun getSheetLines(sheetId: Long): List<SheetLineEntity>
+
+    @Query("DELETE FROM item_country WHERE itemId = :itemId AND countryId = :countryId")
+    suspend fun deleteLinkByIds(itemId: Long, countryId: Long)
+
+    @Query("SELECT * FROM sheet_lines WHERE sheetId = :sheetId ORDER BY createdAt ASC")
+    fun observeSheetLines(sheetId: Long): kotlinx.coroutines.flow.Flow<List<SheetLineEntity>>
+
+    @Update
+    suspend fun updateSheetLine(line: SheetLineEntity)
+
+    @Delete
+    suspend fun deleteSheetLine(line: SheetLineEntity)
+
+    @Insert
+    suspend fun insertSheetLine(line: SheetLineEntity)
+
+}
