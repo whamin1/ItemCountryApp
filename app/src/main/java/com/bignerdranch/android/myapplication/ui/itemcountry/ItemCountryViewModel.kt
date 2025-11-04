@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
+import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
@@ -18,10 +19,26 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     val repository: ItemCountryRepository by lazy {
         val db = AppDatabase.get(app)
-        ItemCountryRepository(db.itemCountryDao(), db.sheetDao())
+        ItemCountryRepository(db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
     }
     private var repo: ItemCountryRepository = repository
 
+    private val _sessionId = MutableStateFlow<Long?>(null)
+    private val _onlySaved = MutableStateFlow(false)
+
+    val sessionLines: StateFlow<List<SaveSessionLineEntity>> =
+        combine(_sessionId.filterNotNull(), _onlySaved) { id, only ->
+            id to only
+        }.flatMapLatest { (id, only) ->
+            repo.observeSessionLines(id, true) // ✅ 여기!
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+    fun setSessionId(id: Long) { _sessionId.value = id }
+    fun setOnlySaved(only: Boolean) { _onlySaved.value = only }
 
     // 1) 아이템 -> 나라
     val uiStateItem: StateFlow<Map<String, List<String>>>
@@ -35,7 +52,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         val db = AppDatabase.get(app)
-        repo = ItemCountryRepository(db.itemCountryDao(), db.sheetDao())
+        repo = ItemCountryRepository(db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
 
         uiStateItem = repo.observeAll().stateIn(
             scope = viewModelScope,

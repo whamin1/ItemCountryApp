@@ -63,6 +63,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private lateinit var indexBar: TextView
     private lateinit var tvMode: TextView
     private lateinit var switchMode: SwitchCompat
+    private val isCountMode = MutableStateFlow(true)
+    private lateinit var switchCountMode: SwitchCompat
 
     private val db by lazy { AppDatabase.get(requireContext()) }
     private val itemDao by lazy { db.itemCountryDao() }
@@ -78,6 +80,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val toolbar = view.findViewById<Toolbar>(R.id.topAppBar)
         tvMode = view.findViewById(R.id.tvMode)
         switchMode = view.findViewById(R.id.switchMode)
+        switchCountMode = view.findViewById(R.id.switchCountMode)
         recyclerView = view.findViewById(R.id.recyclerView)
         indexBar = view.findViewById(R.id.indexBar)
         val fabAdd = view.findViewById<FloatingActionButton>(R.id.fabAdd)
@@ -86,6 +89,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val fabArchive = view.findViewById<FloatingActionButton>(R.id.fabArchive)
         val fabReset = view.findViewById<FloatingActionButton>(R.id.fabReset)
 
+        switchCountMode.setOnCheckedChangeListener { _, isChecked ->
+            isCountMode.value = isChecked
+            switchCountMode.text = if (isChecked) "저장" else "기록"
+            updateFabSaveLabel()
+            adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
+        }
 
         fabReset.setOnClickListener {
             pending.clear()
@@ -340,6 +349,24 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
         // 현재 표시값 + 누적 delta → 임시 have 계산
         val key = item to country
+
+        // 합계모드 OFF
+        if (!isCountMode.value && delta > 0) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val itemId = itemDao.getItemIdByName(item) ?: return@launch
+                val countryId = itemDao.getCountryIdByName(country) ?: return@launch
+
+                vm.onPlusClicked(itemId, countryId)
+            }
+            // 리스트 임시값 반영(이미 어댑터에 함수 만들었을 거야)
+            adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
+
+            // ✅ FAB 라벨 갱신
+            updateFabSaveLabel()
+            return
+        }
+
+        // 기존 누적로직
         val p = pending[key]
         if (p == null) {
             // 처음 수정하는 항목이면 기준값 저장
@@ -351,14 +378,15 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             // 이미 있으면 newHave만 갱신
             p.newHave = (p.newHave + delta).coerceAtLeast(0)
         }
-
         // 리스트 임시값 반영(이미 어댑터에 함수 만들었을 거야)
         adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
 
         // ✅ FAB 라벨 갱신
         updateFabSaveLabel()
 
-        if (delta > 0) {
+        if (isCountMode.value && delta > 0) {
+
+        } else if (!isCountMode.value && delta > 0) {
             viewLifecycleOwner.lifecycleScope.launch {
                 val itemId = itemDao.getItemIdByName(item) ?: return@launch
                 val countryId = itemDao.getCountryIdByName(country) ?: return@launch
@@ -366,6 +394,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 vm.onPlusClicked(itemId, countryId)
             }
         }
+
     }
 
     private fun pendingSnapshotForAdapter(): Map<Pair<String, String>, Pair<Int, Int>> =
@@ -558,20 +587,23 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     }
 
     private fun updateFabSaveLabel() {
-// 총 변경 수량 합계(새 보유 - 기준 보유)
-        val totalDelta = pending.values.sumOf { it.newHave - it.baseHave }
 
         // 뷰에서 fabSave 찾기
         val view = view ?: return
         val fab = view.findViewById<View>(R.id.fabSave)
 
+        val effectiveDelta = if (isCountMode.value) {
+            pending.values.sumOf { it.newHave - it.baseHave }
+        } else {
+            0
+        }
         // 1) ExtendedFloatingActionButton 인지 체크
         if (fab is ExtendedFloatingActionButton) {
-            if (totalDelta == 0) {
+            if (effectiveDelta == 0) {
                 fab.text = "저장"
                 fab.shrink() // 아이콘만
             } else {
-                fab.text = "저장 (+" + totalDelta + ")"
+                fab.text = "저장 (+" + effectiveDelta + ")"
                 fab.extend() // 텍스트 보이게
             }
             return
@@ -580,7 +612,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         // 2) 일반 FloatingActionButton 인 경우(텍스트가 원래 안 보임)
         if (fab is FloatingActionButton) {
             // 접근성용 설명 갱신
-            fab.contentDescription = if (totalDelta == 0) "저장" else "저장 (+" + totalDelta + ")"
+            fab.contentDescription = if (effectiveDelta == 0) "저장" else "저장 (+" + effectiveDelta + ")"
             // 필요하면 아래 스낵바 한 줄로 시각 피드백도 줄 수 있어요 (원치 않으면 주석 처리)
             // Snackbar.make(requireView(), if (totalDelta==0) "변경 없음" else "변경 합계: +$totalDelta", Snackbar.LENGTH_SHORT).show()
         }

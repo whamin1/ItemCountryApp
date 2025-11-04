@@ -304,6 +304,24 @@ ORDER BY i.name, c.name
   ORDER BY timestamp DESC
 """)
         suspend fun getLinesExcludeClicks(sessionId: Long): List<SaveSessionLineEntity>
+
+        @Query("""
+            SELECT *FROM save_session_line WHERE sessionId = :sessionId ORDER BY timestamp DESC
+            """)
+        suspend fun getAllLines(sessionId: Long): List<SaveSessionLineEntity>
+
+        @Query("""
+SELECT *
+FROM save_session_line
+WHERE sessionId = :sessionId
+  AND (:onlySaved = 0 OR COALESCE(batchId, 0) > 0)
+ORDER BY timestamp DESC
+""")
+        fun observeSessionLines(
+            sessionId: Long,
+            onlySaved: Int // 0 = 전체, 1 = 저장 로그만(batchId > 0)
+        ): kotlinx.coroutines.flow.Flow<List<SaveSessionLineEntity>>
+
     }
 
     @Query("""
@@ -322,7 +340,7 @@ SELECT q.id AS id,
        q.toHave AS toHave,
        q.delta AS delta,
        q.timestamp AS timestamp,
-       0 AS batchId,
+       COALESCE(q.batchId, 0) AS batchId,
        ic.weight AS weight,           -- ✅ 추가
        ic.price  AS price             -- ✅ 추가
 FROM quantity_log q
@@ -461,5 +479,6 @@ WHERE c.name = :country
 
     @Insert
     suspend fun insertSheetLine(line: SheetLineEntity)
+
 
 }

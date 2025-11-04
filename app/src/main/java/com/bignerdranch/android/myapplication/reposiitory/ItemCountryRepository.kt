@@ -16,7 +16,8 @@ import kotlinx.coroutines.withContext
 
 class ItemCountryRepository(
     private val dao: ItemCountryDao,
-    private val sheetDao: ItemCountryDao.SheetDao
+    private val sheetDao: ItemCountryDao.SheetDao,
+    private val saveArchiveDao: ItemCountryDao.SaveArchiveDao
 ) {
     /** Map<아이템명, 나라리스트> 한 방에 추가 */
     suspend fun addItems(items: Map<String, List<String>>) {
@@ -254,4 +255,9 @@ class ItemCountryRepository(
     suspend fun insertSheetLine(sheetId: Long, line: SheetLineEntity) =
         dao.insertSheetLine(line.copy(sheetId = sheetId))
 
+    fun observeSessionLines(sessionId: Long, onlySaved: Boolean) =
+        saveArchiveDao.observeSessionLines(sessionId, if (onlySaved) 1 else 0)
+
+    // 필요하면 한 번만 전체 가져오는 함수(초기 디버그용)
+    suspend fun getAllLines(sessionId: Long) = saveArchiveDao.getAllLines(sessionId)
 }
