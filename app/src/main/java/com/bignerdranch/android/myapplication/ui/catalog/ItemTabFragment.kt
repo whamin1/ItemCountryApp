@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.ui.catalog
 
+import android.icu.text.NumberFormat
 import android.os.Bundle
 import android.view.View
 import android.widget.TextView
@@ -61,11 +62,18 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val r = data[position]
-            val weightStr = if (r.weight > 0f) " / ${r.weight}kg" else ""
-            val priceStr = if (r.price > 0f) " / ${java.text.NumberFormat.getInstance().format(r.price)}" else ""
+            val time = fmt.format(Date(r.timestamp))
 
-            holder.tv.text =
-                "${fmt.format(Date(r.timestamp))} ${r.item} · ${r.country}$weightStr$priceStr"
+            val w = r.weight?.takeIf { it > 0f }?.let { " / ${it}kg" } ?: ""
+            val p = r.price?.takeIf { it > 0 }?.let { " / ${NumberFormat.getInstance().format(it)}" } ?: ""
+            val total = data.filter { it.item == r.item && it.country == r.country }
+                .sumOf { it.delta }
+
+            val deltaStr = if (r.delta > 0) " +${r.delta}" else if (r.delta < 0) " ${r.delta}" else ""
+
+            val totalStr = if (total != 0) "${if (total > 0) "+" else ""}$total" else ""
+
+            holder.tv.text = "$time ${r.item} · ${r.country} ${r.fromHave}$totalStr $w$p"
         }
     }
 

@@ -29,7 +29,7 @@ import java.util.concurrent.Executors
         SheetEntity::class,
         SheetLineEntity::class
     ],
-    version = 13, // ✅ 버전만 올림 (예: 기존 11 → 12)
+    version = 14, // ✅ 버전만 올림 (예: 기존 11 → 12)
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

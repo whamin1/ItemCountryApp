@@ -38,7 +38,7 @@ class EntryAdapter(
         val c = text.first()
         return when {
             c in 'A'..'Z' || c in 'a'..'z' -> c.uppercaseChar().toString()
-            c in '0'..'9' -> "#"
+            c in '0'..'9' -> "0-9"
             c in '\uAC00'..'\uD7A3' -> { // 한글 완성형
                 val idx = ((c.code - 0xAC00) / (21 * 28))
                 CHO.getOrNull(idx)?.toString() ?: "#"

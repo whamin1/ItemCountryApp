@@ -198,8 +198,8 @@ ORDER BY i.name, c.name
         val delta: Int = 0,
         val timestamp: Long = 0L,
         val batchId: Long = 0L,
-        val weight: Float,
-        val price: Float
+        val weight: Float?,
+        val price: Int?
     )
 
     data class HistoryRow(
@@ -253,24 +253,37 @@ ORDER BY i.name, c.name
 
     // 아이템 탭: [+ 클릭]만 보기 (delta > 0, batchId = 0 또는 NULL)
     @Query("""
-    SELECT q.id AS id,
-           i.name AS item,
-           c.name AS country,
-           q.fromHave AS fromHave,
-           q.toHave AS toHave,
-           q.delta AS delta,
-           q.timestamp AS timestamp,
-           COALESCE(q.batchId, 0) AS batchId,
-           ic.weight AS weight,
-           ic.price AS price
-    FROM quantity_log q
-    JOIN items i ON i.id = q.itemId
-    JOIN countries c ON c.id = q.countryId
-    JOIN item_country ic ON ic.itemId = q.itemId AND ic.countryId = q.countryId
-    WHERE q.delta > 0
-      AND COALESCE(q.batchId, 0) = 0
-    ORDER BY q.timestamp DESC
-    LIMIT :limit
+    SELECT
+  q.id AS id,
+  i.name AS item,
+  c.name AS country,
+  q.fromHave AS fromHave,
+  q.toHave AS toHave,
+  q.delta AS delta,
+  q.timestamp AS timestamp,
+  COALESCE(q.batchId, 0) AS batchId,
+  COALESCE(ic.weight, sl.weight) AS weight,
+  COALESCE(ic.price , sl.price ) AS price
+FROM quantity_log q
+JOIN items i      ON i.id = q.itemId
+JOIN countries c  ON c.id = q.countryId
+LEFT JOIN item_country ic 
+       ON ic.itemId = q.itemId AND ic.countryId = q.countryId
+LEFT JOIN (
+  SELECT s1.item, s1.country, s1.weight, s1.price
+  FROM sheet_lines s1
+  JOIN (
+    SELECT item, country, MAX(createdAt) AS maxC
+    FROM sheet_lines
+    WHERE (weight > 0 OR price > 0)
+    GROUP BY item, country
+  ) s2
+  ON s1.item = s2.item AND s1.country = s2.country AND s1.createdAt = s2.maxC
+) sl ON sl.item = i.name AND sl.country = c.name
+WHERE q.delta > 0
+  AND COALESCE(q.batchId, 0) = 0
+ORDER BY q.timestamp DESC
+LIMIT :limit
 """)
     suspend fun getRecentPlusClicks(limit: Int = 200): List<QuantityRow>
 
@@ -480,5 +493,104 @@ WHERE c.name = :country
     @Insert
     suspend fun insertSheetLine(line: SheetLineEntity)
 
+    // ItemCountryDao.kt
+    @Query("""
+UPDATE item_country AS ic
+SET
+  weight = COALESCE((
+    SELECT sl.weight
+    FROM sheet_lines sl
+    WHERE sl.item = (SELECT name FROM items WHERE id = ic.itemId)
+      AND sl.country = (SELECT name FROM countries WHERE id = ic.countryId)
+      AND sl.weight > 0
+    ORDER BY sl.createdAt DESC
+    LIMIT 1
+  ), weight),
+  price = COALESCE((
+    SELECT sl.price
+    FROM sheet_lines sl
+    WHERE sl.item = (SELECT name FROM items WHERE id = ic.itemId)
+      AND sl.country = (SELECT name FROM countries WHERE id = ic.countryId)
+      AND sl.price > 0
+    ORDER BY sl.createdAt DESC
+    LIMIT 1
+  ), price)
+""")
+    suspend fun backfillItemCountryWeightPriceFromSheets()
+
+    // (1) 리스트에 쓸 Row
+    data class ItemWithOff(
+        val itemId: Long,
+        val countryId: Long,
+        val item: String,
+        val country: String,
+        val have: Int,        // 본 have (item_country.have)
+        val offHave: Int,     // OFF 모드로 쌓인 합계(Σ delta where batchId=0)
+        val needed: Int,
+        val weight: Float?,
+        val price: Int?
+    )
+
+    // (2) OFF 모드 집계 포함해 관찰
+    @Query("""
+SELECT 
+  ic.itemId,
+  ic.countryId,
+  i.name   AS item,
+  c.name   AS country,
+  ic.have  AS have,
+  COALESCE((
+    SELECT SUM(q.delta) 
+    FROM quantity_log q
+    WHERE q.itemId = ic.itemId 
+      AND q.countryId = ic.countryId
+      AND COALESCE(q.batchId, 0) = 0   -- OFF 모드에서 누른 로그만
+  ), 0) AS offHave,
+  ic.needed AS needed,
+  ic.weight AS weight,
+  ic.price  AS price
+FROM item_country ic
+JOIN items i     ON i.id = ic.itemId
+JOIN countries c ON c.id = ic.countryId
+ORDER BY i.name, c.name
+""")
+    fun observeItemsWithOff(): kotlinx.coroutines.flow.Flow<List<ItemWithOff>>
+
+    // (3) OFF 모드 클릭은 로그만 남기기
+
+    @androidx.room.Transaction
+    suspend fun addOffClick(itemId: Long, countryId: Long, delta: Int) {
+        if (delta <= 0) return
+        insertQuantityLog(
+            QuantityLogEntity(
+                itemId = itemId,
+                countryId = countryId,
+                fromHave = 0, // 본 have는 안 바꾸니 0(또는 생략 가능)
+                toHave = 0,
+                delta = delta,
+                timestamp = System.currentTimeMillis(),
+                batchId = null // 또는 0 (쿼리에서 COALESCE로 0 취급)
+            )
+        )
+    }
+
+    // (선택) 특정 아이템의 offHave만 읽기
+    @Query("""
+SELECT COALESCE(SUM(delta), 0)
+FROM quantity_log
+WHERE itemId = :itemId
+  AND countryId = :countryId
+  AND COALESCE(batchId, 0) = 0
+""")
+    suspend fun getOffHave(itemId: Long, countryId: Long): Int
+
+    // (선택) OFF 집계 초기화(로그 삭제)
+    @Query("""
+DELETE FROM quantity_log
+WHERE itemId = :itemId
+  AND countryId = :countryId
+  AND COALESCE(batchId, 0) = 0
+""")
+    suspend fun clearOffFor(itemId: Long, countryId: Long): Int
 
 }

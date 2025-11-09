@@ -200,4 +200,8 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     fun insertSheetLine(sheetId: Long, line: SheetLineEntity) = viewModelScope.launch {
         repo.insertSheetLine(sheetId, line)
     }
+
+    fun addOffClick(itemId: Long, countryId: Long, delta: Int = 1) = viewModelScope.launch {
+        repository.addOff(itemId, countryId, delta)
+    }
 }

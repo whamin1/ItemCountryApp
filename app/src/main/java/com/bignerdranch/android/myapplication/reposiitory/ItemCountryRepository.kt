@@ -260,4 +260,14 @@ class ItemCountryRepository(
 
     // 필요하면 한 번만 전체 가져오는 함수(초기 디버그용)
     suspend fun getAllLines(sessionId: Long) = saveArchiveDao.getAllLines(sessionId)
+
+    fun observeItemsWithOff() = dao.observeItemsWithOff()
+
+    suspend fun addOff(itemId: Long, countryId: Long, delta: Int) {
+        dao.addOffClick(itemId, countryId, delta)
+    }
+
+    suspend fun getOffHave(itemId: Long, country: Long) = dao.getOffHave(itemId, country)
+
+    suspend fun clearOff(itemId: Long, countryId: Long) = dao.clearOffFor(itemId, countryId)
 }

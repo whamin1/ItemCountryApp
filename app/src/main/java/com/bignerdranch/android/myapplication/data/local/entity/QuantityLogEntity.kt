@@ -12,6 +12,6 @@ data class QuantityLogEntity (
     val toHave: Int = 0,
     val delta: Int = 0,
     val timestamp: Long = 0L, // System.currentTimeMillis()
-    val batchId: Long = 0L,
+    val batchId: Long? = null,
     val archived: Int = 0
 )

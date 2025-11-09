@@ -72,7 +72,7 @@
                 android:focusable="true"
                 android:elevation="8dp"
                 android:background="#1A000000"
-                android:text="A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\nN\nO\nP\nQ\nR\nS\nT\nU\nV\nW\nX\nY\nZ"/>
+                android:text="" />
 
 
             <LinearLayout
@@ -85,8 +85,7 @@
                     android:id="@+id/fabReset"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:layout_marginEnd="16dp"
+                    android:layout_margin="16dp"
                     android:contentDescription="초기화"
                     android:src="@android:drawable/ic_popup_sync"
                     app:tint="@android:color/white"
@@ -116,13 +115,13 @@
                     android:layout_margin="16dp"
                     app:srcCompat="@android:drawable/ic_menu_recent_history" />
 
-                <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/fabAdd"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|end"
-                    android:layout_margin="16dp"
-                    app:srcCompat="@android:drawable/ic_input_add"/>
+<!--                <com.google.android.material.floatingactionbutton.FloatingActionButton-->
+<!--                    android:id="@+id/fabAdd"-->
+<!--                    android:layout_width="wrap_content"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:layout_gravity="bottom|end"-->
+<!--                    android:layout_margin="16dp"-->
+<!--                    app:srcCompat="@android:drawable/ic_input_add"/>-->
             </LinearLayout>
 
         </FrameLayout>
