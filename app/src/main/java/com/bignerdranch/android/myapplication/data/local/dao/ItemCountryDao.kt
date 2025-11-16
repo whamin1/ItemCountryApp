@@ -561,13 +561,36 @@ ORDER BY i.name, c.name
     @androidx.room.Transaction
     suspend fun addOffClick(itemId: Long, countryId: Long, delta: Int) {
         if (delta <= 0) return
+        val before = getOffHave(itemId, countryId)
+        val after = before + delta
         insertQuantityLog(
             QuantityLogEntity(
                 itemId = itemId,
                 countryId = countryId,
-                fromHave = 0, // 본 have는 안 바꾸니 0(또는 생략 가능)
-                toHave = 0,
+                fromHave = before, // 본 have는 안 바꾸니 0(또는 생략 가능)
+                toHave = after,
                 delta = delta,
+                timestamp = System.currentTimeMillis(),
+                batchId = null // 또는 0 (쿼리에서 COALESCE로 0 취급)
+            )
+        )
+    }
+
+    @androidx.room.Transaction
+    suspend fun removeOffClick(itemId: Long, countryId: Long) {
+
+        val before = getOffHave(itemId, countryId)
+        val after = before - 1
+
+        if (before <= 0) return
+
+        insertQuantityLog(
+            QuantityLogEntity(
+                itemId = itemId,
+                countryId = countryId,
+                fromHave = before, // 본 have는 안 바꾸니 0(또는 생략 가능)
+                toHave = after,
+                delta = -1,
                 timestamp = System.currentTimeMillis(),
                 batchId = null // 또는 0 (쿼리에서 COALESCE로 0 취급)
             )
@@ -592,5 +615,57 @@ WHERE itemId = :itemId
   AND COALESCE(batchId, 0) = 0
 """)
     suspend fun clearOffFor(itemId: Long, countryId: Long): Int
+
+    data class HaveOffRow(
+        val itemId: Long,
+        val countryId: Long,
+        val have: Int,
+        val offHave: Int
+    )
+
+    @Query("""
+        SELECT ic.itemId AS itemId,
+        ic.countryId AS countryId,
+        ic.have AS have,
+        COALESCE((
+        SELECT SUM(q.delta)
+        FROM quantity_log q
+        WHERE q.itemId = ic.itemId
+        AND q.countryId = ic.countryId
+        AND COALESCE(q.batchId, 0) = 0
+        AND COALESCE(q.archived, 0) = 0
+        ), 0) As offHave
+        FROM item_country ic
+        JOIN countries c ON c.id = ic.countryId
+        WHERE c.name = :country
+    """)
+    suspend fun getHaveAndOffByCountry(country: String): List<HaveOffRow>
+
+
+    // ✅ 핵심: have를 0으로 내릴 때 off 로그에서도 동일 수량만큼(가능한 범위 내에서) 차감
+    @Transaction
+    suspend fun resetHaveAndConsumeOffByCountry(country: String, now: Long = System.currentTimeMillis()) {
+        val rows = getHaveAndOffByCountry(country)
+        rows.forEach { r ->
+            val consume = kotlin.math.min(r.have, r.offHave)
+            if (consume > 0) {
+                insertQuantityLog(
+                    QuantityLogEntity(
+                        id = 0,
+                        itemId = r.itemId,
+                        countryId = r.countryId,
+                        fromHave = 0,        // 필요 없으면 0/NULL 유지
+                        toHave = 0,
+                        delta = -consume,    // 🔻 offHave에서 차감
+                        batchId = 0L,        // ← off 모드
+                        timestamp = now,
+                        archived = 0
+                    )
+                )
+            }
+        }
+        // 마지막에 실제 재고 0으로
+        resetHaveByCountry(country)
+    }
 
 }

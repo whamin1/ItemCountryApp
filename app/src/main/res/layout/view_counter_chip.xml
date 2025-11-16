@@ -2,7 +2,7 @@
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
-    android:layout_height="36dp"
+    android:layout_height="wrap_content"
     android:layout_margin="4dp"
     android:padding="6dp"
     android:clickable="true"
@@ -10,32 +10,54 @@
     android:foreground="?attr/selectableItemBackground">
 
     <LinearLayout
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:layout_width="wrap_content"
-        android:layout_height="match_parent">
-
-        <ImageButton
-            android:id="@+id/btnMinus"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:contentDescription="-"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_delete"/>
-
-        <TextView
-            android:id="@+id/tvLabel"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        >
+        <LinearLayout
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingHorizontal="6dp"
-            android:text="한국 (필요0 보유0)"/>
+            android:layout_height="match_parent">
 
-        <ImageButton
-            android:id="@+id/btnPlus"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:contentDescription="+"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_input_add"/>
+
+
+            <TextView
+                android:id="@+id/tvLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="6dp"
+                android:text="한국 (필요0 보유0)"/>
+
+
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnMinus"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:contentDescription="-"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_delete"/>
+
+            <!-- ★ 여기 추가: 빈 공간을 채우는 weight=1 View -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/btnPlus"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:contentDescription="+"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_input_add"/>
+        </LinearLayout>
     </LinearLayout>
+
 </com.google.android.material.card.MaterialCardView>

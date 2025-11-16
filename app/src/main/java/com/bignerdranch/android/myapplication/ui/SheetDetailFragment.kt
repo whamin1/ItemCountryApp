@@ -1,7 +1,13 @@
 package com.bignerdranch.android.myapplication.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuInflater
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
@@ -16,6 +22,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.launch
 
@@ -23,13 +30,52 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
     private val vm: ItemCountryViewModel by activityViewModels()
     private lateinit var adapter: LinesAdapter
+    private var titleStr: String = ""
+    private lateinit var rv: RecyclerView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val titleStr = requireArguments().getString("title").orEmpty()
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val sheetId = requireArguments().getLong("sheetId")
-        val title = requireArguments().getString("title").orEmpty()
-        view.findViewById<TextView>(R.id.tvTitle).text = title
 
-        val rv = view.findViewById<RecyclerView>(R.id.rv)
+
+        val toolbar = view.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
+        if (toolbar != null) {
+            toolbar.title = titleStr
+            toolbar.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    R.id.action_copy_sheet -> {
+                        requireContext().copyToClipboard("시트 내용", buildSheetText())
+                        true
+                    }
+                    else -> false
+                }
+            }
+        } else {
+            requireActivity().title = titleStr
+            requireActivity().addMenuProvider(object : androidx.core.view.MenuProvider {
+                override fun onCreateMenu(
+                    menu: Menu,
+                    menuInflater: MenuInflater
+                ) {
+                    menuInflater.inflate(R.menu.menu_sheet, menu)
+                }
+
+                override fun onMenuItemSelected(menuItem: MenuItem): Boolean =
+                    when (menuItem.itemId) {
+                        R.id.action_copy_sheet -> {
+                            requireContext().copyToClipboard("시트 내용", buildSheetText()); true
+                        }
+                        else -> false
+                    }
+
+            }, viewLifecycleOwner, androidx.lifecycle.Lifecycle.State.STARTED)
+        }
+
+        rv = view.findViewById(R.id.rv)
         rv.layoutManager = LinearLayoutManager(requireContext())
         adapter = LinesAdapter(
             onEdit = { openEditDialog(it) },
@@ -42,14 +88,33 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                 vm.observeSheetLines(sheetId).collect { adapter.submit(it) }
             }
         }
+
+
         val fab = view.findViewById<FloatingActionButton>(R.id.fabAddLine)
         fab.setOnClickListener { openAddDialog() }
+    }
+
+    private fun buildSheetText(): String {
+        val rows = adapter.currentList()
+        if (rows.isEmpty()) return "비어 있음"
+
+        val title = if (titleStr.isNotBlank()) titleStr
+        else view?.findViewById<MaterialToolbar>(R.id.toolbar)?.title?.toString().orEmpty()
+
+        return buildString {
+            if (title.isNotBlank()) appendLine("[$title]")
+            rows.forEach { ln ->
+                val w = ln.weight.takeIf { it > 0f }?.let { "${it}kg" } ?: "-"
+                val p = ln.price.takeIf { it > 0 }?.let { "${it}원" } ?: "-"
+                appendLine("${ln.item} (${ln.country}) / 필요:${ln.needed} / 보유:${ln.have} / 무게:$w / 가격:$p")
+            }
+        }
     }
 
     private fun confirmDeleteLine(line: SheetLineEntity) {
         AlertDialog.Builder(requireContext())
             .setTitle("삭제 확인")
-            .setMessage("절말로 '${line.item}' 을(를) 삭제하시겠습니까?")
+            .setMessage("정말로 '${line.item}' 을(를) 삭제하시겠습니까?")
             .setPositiveButton("삭제") { _, _ ->
                 vm.deleteSheetLine(line)
                 Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
@@ -88,7 +153,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                 )
                 vm.insertSheetLine(sheetId, newLine)
                 Toast.makeText(requireContext(), "라인 추가 완료!", Toast.LENGTH_SHORT).show()
-                rv?.scrollToPosition(adapter.itemCount - 1)
+                this.rv.scrollToPosition(adapter.itemCount - 1)
             }
             .setNegativeButton("취소", null)
             .show()
@@ -139,6 +204,8 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         private val data = mutableListOf<SheetLineEntity>()
         fun submit(list: List<SheetLineEntity>) { data.apply { clear(); addAll(list) }; notifyDataSetChanged() }
 
+        fun currentList(): List<SheetLineEntity> = data.toList()
+
         override fun onCreateViewHolder(p: ViewGroup, viewType: Int): VH {
             val v = LayoutInflater.from(p.context).inflate(R.layout.item_sheet_line, p, false)
             return VH(v)
@@ -170,4 +237,10 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             }
         }
     }
+}
+
+private fun Context.copyToClipboard(label: String, text: String) {
+    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText(label, text))
+    Toast.makeText(this, "복사되었습니다!", Toast.LENGTH_SHORT).show()
 }

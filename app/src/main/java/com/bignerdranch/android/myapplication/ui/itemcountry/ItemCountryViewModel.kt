@@ -204,4 +204,10 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     fun addOffClick(itemId: Long, countryId: Long, delta: Int = 1) = viewModelScope.launch {
         repository.addOff(itemId, countryId, delta)
     }
+
+    fun removeOffClick(itemId: Long, countryId: Long) {
+        viewModelScope.launch {
+            repository.removeOffClick(itemId, countryId)
+        }
+    }
 }

@@ -7,6 +7,21 @@
         android:orientation="vertical" android:layout_width="match_parent"
         android:layout_height="match_parent" android:padding="12dp">
 
+        <com.google.android.material.appbar.AppBarLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="?attr/actionBarSize"
+                android:background="?attr/colorPrimary"
+                app:titleTextColor="?attr/colorOnPrimary"
+                app:navigationIconTint="?attr/colorOnPrimary"
+                app:title="시트 상세"
+                app:menu="@menu/menu_sheet"/>
+        </com.google.android.material.appbar.AppBarLayout>
+
         <TextView
             android:id="@+id/tvTitle"
             android:layout_width="match_parent" android:layout_height="wrap_content"

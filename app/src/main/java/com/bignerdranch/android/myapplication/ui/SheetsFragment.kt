@@ -114,7 +114,17 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
             h.btnApply.setOnClickListener { onApply(s) }
             h.btnToggle.text = if (s.hidden) "활성화" else "비활성화"
             h.btnToggle.setOnClickListener { onToggle(s) }
-            h.btnDelete.setOnClickListener { onDelete(s) }
+            h.btnDelete.setOnClickListener {
+                AlertDialog.Builder(h.itemView.context)
+                    .setTitle("삭제 확인")
+                    .setMessage("${s.title}  시트를 정말 삭제하시겠습니까?")
+                    .setPositiveButton("삭제") { _, _ ->
+                        onDelete(s)
+                        Toast.makeText(h.itemView.context, "삭제되었습니다.", Toast.LENGTH_LONG).show()
+                    }
+                    .setNegativeButton("취소", null)
+                    .show()
+            }
             h.preview.removeAllViews()
             swl.lines.take(5).forEach { ln ->
                 h.preview.addView(TextView(h.itemView.context).apply {
@@ -124,13 +134,6 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
                     setPadding(0, 4, 0, 4)
                 })
             }
-        }
-
-        private fun makeLineView(p: View, ln: SheetLineEntity): View{
-            val tv = TextView(p.context).apply {
-                text = "- ${ln.item}/${ln.needed}"
-            }
-            return tv
         }
     }
 

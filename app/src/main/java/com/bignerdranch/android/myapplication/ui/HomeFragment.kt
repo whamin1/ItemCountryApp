@@ -72,7 +72,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private val itemDao by lazy { db.itemCountryDao() }
     private val archiveDao by lazy { db.saveArchiveDao() }
 
-    private val fullFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    private val offHaveMapFlow = MutableStateFlow<Map<Pair<String, String>, Int>>(emptyMap())
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -92,6 +92,18 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val fabReset = view.findViewById<FloatingActionButton>(R.id.fabReset)
 
         viewLifecycleOwner.lifecycleScope.launch {
+            val dao = AppDatabase.get(requireActivity()).itemCountryDao()
+            dao.observeItemsWithOff().collect { list ->
+                val m = buildMap<Pair<String, String>, Int> {
+                    list.forEach { w ->
+                        put(w.item to w.country, w.offHave)
+                    }
+                }
+                offHaveMapFlow.value = m
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
             AppDatabase.get(requireContext())
                 .itemCountryDao()
                 .backfillItemCountryWeightPriceFromSheets()
@@ -102,6 +114,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             switchCountMode.text = if (isChecked) "저장" else "기록"
             updateFabSaveLabel()
             adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
+            // ✅ 즉시 표기 전환
+            adapter.setOffHaveMode(enabled = !isChecked, offHave = offHaveMapFlow.value)
         }
 
         fabReset.setOnClickListener {
@@ -230,46 +244,57 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(
-                    vm.uiStateItemQty,     // 아이템 → 나라(수량 포함)
-                    vm.uiStateCountryQty,  // 나라 → 아이템(수량 포함)
-                    isCountryMode
-                ) { itemMap, countryMap, countryMode ->
-                    countryMode to (if (countryMode) countryMap else itemMap)
-                }.collect { (countryMode, map) ->
+                    vm.uiStateItemQty,     // 아이템→나라
+                    vm.uiStateCountryQty,  // 나라→아이템
+                    isCountryMode,
+                    isCountMode,
+                    offHaveMapFlow
+                ) { itemMap, countryMap, countryMode, countMode, offMap ->
+                    // 👇 5개를 한 묶음으로 반환할 수 없으니 Triple 안에 Pair를 넣자
+                    Triple(countryMode, if (countryMode) countryMap else itemMap, Pair(countMode, offMap))
+                }.collect { triple ->
+                    val countryMode = triple.first
+                    val map = triple.second
+                    val countMode = triple.third.first
+                    val offMap = triple.third.second
+
                     adapter.submitData(map)
                     adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
-                    updateFabSaveLabel()
 
+                    // ✅ 저장 OFF 모드일 땐 offHave 표기
+                    adapter.setOffHaveMode(enabled = !countMode, offHave = offMap)
+
+
+                    updateFabSaveLabel()
                     val sections = adapter.availableSections()
                     indexBar.text = sections.joinToString("\n")
                     fitIndexBarLineSpacing()
                 }
-
             }
         }
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            val db = AppDatabase.get(requireContext())
-            val sheetDao = db.sheetDao()
-
-            // 이미 시트가 있으면 중복생성 안 함
-            val count = sheetDao.observeAllSheets().firstOrNull()?.size ?: 0
-            if (count == 0) {
-                val sheetId1 = sheetDao.insertSheet(SheetEntity(title = "테스트 시트 1"))
-                val sheetId2 = sheetDao.insertSheet(SheetEntity(title = "테스트 시트 2"))
-
-                sheetDao.insertSheetLines(
-                    listOf(
-                        SheetLineEntity(sheetId = sheetId1, item = "T-shirt", country = "한국", needed = 10, have = 4, weight = 0.5f, price = 15000),
-                        SheetLineEntity(sheetId = sheetId1, item = "Jeans", country = "일본", needed = 5, have = 2, weight = 0.8f, price = 35000),
-                        SheetLineEntity(sheetId = sheetId2, item = "Socks", country = "한국", needed = 20, have = 15, weight = 0.1f, price = 3000),
-                        SheetLineEntity(sheetId = sheetId2, item = "Hat", country = "미국", needed = 3, have = 1, weight = 0.3f, price = 12000)
-                    )
-                )
-
-                Toast.makeText(requireContext(), "테스트 시트 2개 생성 완료!", Toast.LENGTH_SHORT).show()
-            }
-        }
+//        viewLifecycleOwner.lifecycleScope.launch {
+//            val db = AppDatabase.get(requireContext())
+//            val sheetDao = db.sheetDao()
+//
+//            // 이미 시트가 있으면 중복생성 안 함
+//            val count = sheetDao.observeAllSheets().firstOrNull()?.size ?: 0
+//            if (count == 0) {
+//                val sheetId1 = sheetDao.insertSheet(SheetEntity(title = "테스트 시트 1"))
+//                val sheetId2 = sheetDao.insertSheet(SheetEntity(title = "테스트 시트 2"))
+//
+//                sheetDao.insertSheetLines(
+//                    listOf(
+//                        SheetLineEntity(sheetId = sheetId1, item = "T-shirt", country = "한국", needed = 10, have = 4, weight = 0.5f, price = 15000),
+//                        SheetLineEntity(sheetId = sheetId1, item = "Jeans", country = "일본", needed = 5, have = 2, weight = 0.8f, price = 35000),
+//                        SheetLineEntity(sheetId = sheetId2, item = "Socks", country = "한국", needed = 20, have = 15, weight = 0.1f, price = 3000),
+//                        SheetLineEntity(sheetId = sheetId2, item = "Hat", country = "미국", needed = 3, have = 1, weight = 0.3f, price = 12000)
+//                    )
+//                )
+//
+//                Toast.makeText(requireContext(), "테스트 시트 2개 생성 완료!", Toast.LENGTH_SHORT).show()
+//            }
+//        }
 
         viewLifecycleOwner.lifecycleScope.launch {
             val dao = AppDatabase.get(requireContext()).itemCountryDao()
@@ -344,7 +369,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 // 3) 여기서는 **항상** 초기화 수행 (로그가 없어도 리셋하자)
                 val countryId = itemDao.getCountryIdByName(country) ?: continue
                 itemDao.markQuantityLogsArchivedByCountry(countryId) // 있으면 archived=1, 없으면 영향 없음
-                itemDao.resetHaveByCountry(country)                  // ✅ 재고 0으로
+                itemDao.resetHaveAndConsumeOffByCountry(country)                  // ✅ 재고 0으로
                 itemDao.deleteQuantityLogsByCountry(country)
 
                 didAnything = true
@@ -394,17 +419,19 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val key = item to country
 
         // 합계모드 OFF
-        if (!isCountMode.value && delta > 0) {
+        if (!isCountMode.value) {
             viewLifecycleOwner.lifecycleScope.launch {
                 val itemId = itemDao.getItemIdByName(item) ?: return@launch
                 val countryId = itemDao.getCountryIdByName(country) ?: return@launch
 
-                vm.addOffClick(itemId, countryId)
+                if (delta > 0) {
+                    vm.addOffClick(itemId, countryId)      // 이미 있음
+                } else if (delta < 0) {
+                    vm.removeOffClick(itemId, countryId)   // 지금 만든 거
+                }
             }
-            // 리스트 임시값 반영(이미 어댑터에 함수 만들었을 거야)
-            adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
 
-            // ✅ FAB 라벨 갱신
+            adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
             updateFabSaveLabel()
             return
         }

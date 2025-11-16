@@ -66,14 +66,38 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
             val w = r.weight?.takeIf { it > 0f }?.let { " / ${it}kg" } ?: ""
             val p = r.price?.takeIf { it > 0 }?.let { " / ${NumberFormat.getInstance().format(it)}" } ?: ""
+            val after = r.fromHave + r.delta
+            val changeStr = "${r.fromHave}→$after"
             val total = data.filter { it.item == r.item && it.country == r.country }
                 .sumOf { it.delta }
 
-            val deltaStr = if (r.delta > 0) " +${r.delta}" else if (r.delta < 0) " ${r.delta}" else ""
 
-            val totalStr = if (total != 0) "${if (total > 0) "+" else ""}$total" else ""
+            holder.tv.text = "$time ${r.item} · ${r.country} $changeStr $w$p"
 
-            holder.tv.text = "$time ${r.item} · ${r.country} ${r.fromHave}$totalStr $w$p"
+            holder.itemView.setOnLongClickListener {
+                val realPos = holder.bindingAdapterPosition
+                if (realPos == RecyclerView.NO_POSITION) return@setOnLongClickListener true
+                val row = data[realPos]
+
+                androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("로그 삭제")
+                    .setMessage("${row.item} · ${row.country}\n 이 로그를 삭제할까요?")
+                    .setPositiveButton("삭제") { _, _ ->
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            try {
+                                dao.deleteCountryById(row.id)
+                                data.removeAt(realPos)
+                                notifyItemRemoved(realPos)
+                            } catch (e: Exception) {
+                            e.printStackTrace()
+                            }
+                        }
+                    }
+                    .setNegativeButton("취소", null)
+                    .show()
+                true
+            }
+
         }
     }
 

@@ -270,4 +270,8 @@ class ItemCountryRepository(
     suspend fun getOffHave(itemId: Long, country: Long) = dao.getOffHave(itemId, country)
 
     suspend fun clearOff(itemId: Long, countryId: Long) = dao.clearOffFor(itemId, countryId)
+
+    suspend fun removeOffClick(itemId: Long, countryId: Long) {
+        dao.removeOffClick(itemId, countryId)
+    }
 }

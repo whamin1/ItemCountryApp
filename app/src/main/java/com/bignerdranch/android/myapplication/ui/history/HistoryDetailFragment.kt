@@ -34,7 +34,7 @@ class HistoryDetailFragment : Fragment(R.layout.fragment_history_detail) {
     override fun onViewCreated(v: View, s: Bundle?) {
         val sessionId = requireArguments().getLong("sessionId")
         vm.setSessionId(sessionId)
-        val rv = v.findViewById<RecyclerView>(R.id.rvDetail)
+        val rv = v.findViewById<RecyclerView>(R.id.rv)
         rv.layoutManager = LinearLayoutManager(requireContext())
         val adapter = DetailAdapter()
         rv.adapter = adapter

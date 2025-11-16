@@ -38,7 +38,7 @@ class EntryAdapter(
         val c = text.first()
         return when {
             c in 'A'..'Z' || c in 'a'..'z' -> c.uppercaseChar().toString()
-            c in '0'..'9' -> "0-9"
+            c in '0'..'9' -> c.toString()
             c in '\uAC00'..'\uD7A3' -> { // 한글 완성형
                 val idx = ((c.code - 0xAC00) / (21 * 28))
                 CHO.getOrNull(idx)?.toString() ?: "#"
@@ -210,11 +210,16 @@ class EntryAdapter(
                 val country = if (!tempIsCountryMode) r.name else head
                 val key = item to country
 
+                //baseHave: off모드면 offHaveMap 에서
+                val baseHave = if (showOffHave) (offHaveMap[key] ?: 0) else r.have
+
                 // 임시 have 값이 있으면 그걸 표시, 없으면 원래 r.have
-                val displayHave = tempHave[key] ?: r.have
+                val displayHave = tempHave[key] ?: baseHave
+
+                val labelPrefix = if (showOffHave) "O" else "S"
                 // (선택) 임시 증감도 같이 보여주고 싶으면 extra 붙이기
-                val extra = tempHave[key]?.let { v -> if (v != r.have) " (${v - r.have})" else "" } ?: ""
-                tv.text = "${r.name} (N:${r.needed}, S:${displayHave})$extra"
+                val extra = tempHave[key]?.let { v -> if (v != baseHave) " (${v - baseHave})" else "" } ?: "(0)"
+                tv.text = "${r.name} (N:${r.needed}, $labelPrefix:${displayHave})$extra"
 
                 btnMinus.setOnClickListener {
                     onDelta(head, r, -1)   // 👈 HomeFragment 쪽에서 pending 반영
@@ -235,5 +240,14 @@ class EntryAdapter(
                 chipGroup.addView(chipView)
             }
         }
+    }
+
+    private var showOffHave: Boolean = false
+    private var offHaveMap: Map<Pair<String, String>, Int> = emptyMap()
+
+    fun setOffHaveMode(enabled: Boolean, offHave: Map<Pair<String, String>, Int>) {
+        showOffHave = enabled
+        offHaveMap = offHave
+        notifyDataSetChanged()
     }
 }
