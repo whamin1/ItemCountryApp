@@ -467,25 +467,43 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         indexBar.setOnTouchListener { v, event ->
             val tv = v as TextView
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                MotionEvent.ACTION_DOWN,
+                MotionEvent.ACTION_MOVE -> {
                     val lines = tv.text.toString().split("\n")
                     if (lines.isEmpty()) return@setOnTouchListener false
 
-                    val y = event.y.coerceIn(0f, tv.height.toFloat())
-                    val lineHeight = (tv.height.toFloat() / lines.size.coerceAtLeast(1))
+                    val totalHeight = tv.height.toFloat().coerceAtLeast(1f)
+                    val y = event.y.coerceIn(0f, totalHeight)
+                    val lineHeight = totalHeight / lines.size.coerceAtLeast(1)
+
+                    // 1) 현재 어떤 섹션인지 (A, B, L, M ...)
                     val idx = (y / lineHeight).toInt().coerceIn(0, lines.lastIndex)
                     val sec = lines[idx]
 
-                    adapter.positionOfSection(sec)?.let { pos ->
-                        (recyclerView.layoutManager as LinearLayoutManager)
-                            .scrollToPositionWithOffset(pos, 0)
+                    // 2) 해당 섹션 안에서의 비율 (0.0 ~ 1.0)
+                    val topY = idx * lineHeight
+                    val localY = (y - topY).coerceIn(0f, lineHeight)
+                    val ratioInSection =
+                        if (lineHeight > 0f) localY / lineHeight else 0f
+
+                    val lm = recyclerView.layoutManager as LinearLayoutManager
+
+                    // 3) 먼저 "섹션 안 비율"로 위치 찾아보고, 안 나오면 기존 방식으로 헤더로 점프
+                    val pos = adapter.positionOfSection(sec, ratioInSection)
+                        ?: adapter.positionOfSection(sec)
+
+                    pos?.let {
+                        lm.scrollToPositionWithOffset(it, 0)
                     }
                     true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
                     v.performClick()
                     true
                 }
+
                 else -> false
             }
         }

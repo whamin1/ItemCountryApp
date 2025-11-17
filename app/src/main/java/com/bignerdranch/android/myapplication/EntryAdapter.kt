@@ -29,6 +29,10 @@ class EntryAdapter(
 
 ) : RecyclerView.Adapter<EntryAdapter.EntryViewHolder>() {
 
+    private data class SectionRange(val start: Int, val end: Int)
+    private val sectionRanges = mutableMapOf<String, SectionRange>()
+
+
     // ----- 섹션 키 생성(가나다/ABC) -----
     private val CHO = charArrayOf(
         'ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'
@@ -119,24 +123,43 @@ class EntryAdapter(
 
         items.clear()
         sectionFirstPos.clear()
+        sectionRanges.clear()
+
         var pos = 0
         grouped.forEach { (sec, pairs) ->
             items.add(HeaderRow(sec))
             sectionFirstPos[sec] = pos
             pos++
 
+            val startPos = pos
+
             pairs.sortedBy { it.first }.forEach { (head, rows) ->
                 items.add(GroupRow(head, rows))
                 pos++
+            }
+
+            val endPos = pos - 1
+
+            if (endPos >= startPos) {
+                sectionRanges[sec] = SectionRange(startPos, endPos)
             }
         }
         notifyDataSetChanged()
     }
 
     // (선택) 인덱스 점프용 API
+
     fun positionOfSection(section: String): Int? = sectionFirstPos[section]
     fun availableSections(): List<String> = sectionFirstPos.keys.sorted()
+    // 섹션 안에서 ratio(0.0f~1.0f) 비율에 해당하는 위치 반환
+    fun positionOfSection(section: String, ratioInSection: Float): Int? {
+        val range = sectionRanges[section] ?: return null
+        val r = ratioInSection.coerceIn(0f, 1f)
 
+        // start ~ end 사이에서 비율만큼 이동
+        val pos = range.start + ((range.end - range.start) * r).toInt()
+        return pos.coerceIn(range.start, range.end)
+    }
     // ----- RecyclerView 기본 -----
     override fun getItemCount(): Int = items.size
 
