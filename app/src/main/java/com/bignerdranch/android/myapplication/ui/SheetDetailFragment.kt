@@ -32,10 +32,13 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
     private lateinit var adapter: LinesAdapter
     private var titleStr: String = ""
     private lateinit var rv: RecyclerView
+    private var countryFilter: String? = null
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val titleStr = requireArguments().getString("title").orEmpty()
+        titleStr = requireArguments().getString("title").orEmpty()
+        countryFilter = arguments?.getString("country")
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -85,7 +88,12 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                vm.observeSheetLines(sheetId).collect { adapter.submit(it) }
+                vm.observeSheetLines(sheetId).collect { allLines ->
+                    val filtered = countryFilter?.let { c ->
+                    allLines.filter { it.country == c }
+                    } ?: allLines
+                    adapter.submit(filtered)
+                }
             }
         }
 
@@ -125,14 +133,17 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
     private fun openAddDialog() {
         val sheetId = requireArguments().getLong("sheetId")
-        var currentCountry = ""
-        lifecycleScope.launch {
-            vm.observeSheetLines(sheetId).collect { lines ->
-                currentCountry = lines.firstOrNull()?.country ?: currentCountry
-            }
+        var currentCountry = countryFilter ?: ""
+
+        if (currentCountry.isEmpty()) {
+            lifecycleScope.launch {
+                vm.observeSheetLines(sheetId).collect { lines ->
+                    currentCountry = lines.firstOrNull()?.country ?: currentCountry
+                }
+        }
+
         }
         val v = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_edit_line_simple, null)
-        val rv = view?.findViewById<RecyclerView>(R.id.rv)
         val etItem = v.findViewById<EditText>(R.id.etItem)
         val etNeeded = v.findViewById<EditText>(R.id.etNeeded)
         val etWeight = v.findViewById<EditText>(R.id.etWeight)

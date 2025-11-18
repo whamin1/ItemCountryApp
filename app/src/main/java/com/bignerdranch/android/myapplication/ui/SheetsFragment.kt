@@ -67,7 +67,7 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
             "sheetId" to s.id,
             "title" to s.title
         )
-        findNavController().navigate(R.id.sheetDetailFragment, args)
+        findNavController().navigate(R.id.sheetContentFragment, args)
     }
 
 

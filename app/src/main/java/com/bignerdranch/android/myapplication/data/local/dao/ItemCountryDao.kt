@@ -668,4 +668,18 @@ WHERE itemId = :itemId
         resetHaveByCountry(country)
     }
 
+    // ✅ ItemCountryDao.kt 안에 그대로 두고 이걸로 교체
+    @Query("""
+    SELECT country AS name
+    FROM sheet_lines
+    WHERE sheetId = :sheetId
+    GROUP BY country
+    ORDER BY country
+""")
+    suspend fun getCountriesBySheet(sheetId: Long): List<CountryRow>
+
+    data class CountryRow(
+        val name: String
+    )
+
 }
