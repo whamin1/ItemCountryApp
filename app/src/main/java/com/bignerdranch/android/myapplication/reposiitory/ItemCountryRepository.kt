@@ -274,4 +274,44 @@ class ItemCountryRepository(
     suspend fun removeOffClick(itemId: Long, countryId: Long) {
         dao.removeOffClick(itemId, countryId)
     }
+
+    suspend fun addOffAndTouch(itemId: Long, countryId: Long, delta: Int) {
+        if (delta <= 0) return
+        val now = System.currentTimeMillis()
+
+        // 1) OFF 모드 클릭 로그
+        dao.addOffClick(itemId, countryId, delta)
+
+        // 2) 최근 클릭 시간 업데이트
+        dao.updateLastClickedAt(itemId, countryId,now)
+    }
+
+    fun observeRecentTouched(): Flow<List<ItemCountryDao.RecentRow>> =
+        dao.getRecentTouched()
+
+    suspend fun toggleCountryHidden(
+        sheetId: Long,
+        country: String,
+        newHidden: Boolean
+    ) {
+        dao.toggleCountryHidden(sheetId, country, newHidden)
+        dao.setCountryHidden(country, newHidden)
+
+        // 🔥 디버그 로그
+        val all = dao.debugCountries()
+        all.forEach {
+            Log.d("DBG_COUNTRY", "name=${it.name}, hidden=${it.hidden}")
+        }
+    }
+    suspend fun renameSheet(sheetId: Long, title: String) {
+        sheetDao.updateSheetTitle(sheetId, title)
+    }
+
+    suspend fun renameCountryInSheet(sheetId: Long, oldCountry: String, newCountry: String) {
+        sheetDao.renameCountryInSheet(sheetId, oldCountry, newCountry)
+    }
+
+    suspend fun deleteSheetLinesByCountry(sheetId: Long, country: String) {
+        sheetDao.deleteSheetLinesByCountry(sheetId, country)
+    }
 }

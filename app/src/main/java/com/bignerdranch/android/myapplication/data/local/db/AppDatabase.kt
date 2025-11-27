@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.entity.AdditionLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
@@ -29,16 +31,23 @@ import java.util.concurrent.Executors
         SheetEntity::class,
         SheetLineEntity::class
     ],
-    version = 14, // ✅ 버전만 올림 (예: 기존 11 → 12)
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun itemCountryDao(): ItemCountryDao
     abstract fun saveArchiveDao(): ItemCountryDao.SaveArchiveDao
-
     abstract fun sheetDao(): ItemCountryDao.SheetDao
 
     companion object {
+
+        // ✅ 여기로 옮기기 (companion 안)
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE item_country ADD COLUMN lastClickedAt INTEGER")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -53,8 +62,11 @@ abstract class AppDatabase : RoomDatabase() {
                         { sql, _ -> Log.d("SQL", sql) },
                         Executors.newSingleThreadExecutor()
                     )
-                    // ✅ 기존 Migration 전부 제거하고 아래 한 줄만!
-                    .fallbackToDestructiveMigration()
+                    // ❌ 이건 지우고
+                    // .fallbackToDestructiveMigration()
+
+                    // ✅ 마이그레이션 추가
+                    .addMigrations(MIGRATION_14_15)
                     .build()
                     .also { INSTANCE = it }
             }
