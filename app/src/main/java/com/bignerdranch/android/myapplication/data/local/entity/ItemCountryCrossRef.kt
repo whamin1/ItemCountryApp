@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 
@@ -15,5 +16,7 @@ data class ItemCountryCrossRef(
     val needed: Int = 0,
     val have: Int = 0,
     var weight: Float = 0f,
-    var price: Float = 0f
+    var price: Float = 0f,
+    @ColumnInfo(name = "lastClickedAt")
+    val lastClickedAt: Long? = null
 )

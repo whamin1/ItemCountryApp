@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <navigation xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/nav_graph"
     app:startDestination="@id/homeFragment">
 
@@ -77,4 +78,10 @@
             android:name="sessionId"
             app:argType="long" />
     </fragment>
+
+    <fragment
+        android:id="@+id/sheetSearchFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.SheetSearchFragment"
+        android:label="검색"
+        tools:layout="@layout/fragment_sheet_search" />
 </navigation>

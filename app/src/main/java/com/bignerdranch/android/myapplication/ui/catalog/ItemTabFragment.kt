@@ -118,7 +118,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                     .setPositiveButton("삭제") { _, _ ->
                         viewLifecycleOwner.lifecycleScope.launch {
                             try {
-                                dao.deleteCountryById(row.id)
+                                dao.deleteQuantityLogById(row.id)
                                 data.removeAt(realPos)
                                 notifyItemRemoved(realPos)
                             } catch (e: Exception) {

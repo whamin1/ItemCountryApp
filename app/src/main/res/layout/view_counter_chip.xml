@@ -46,18 +46,23 @@
 
             <!-- ★ 여기 추가: 빈 공간을 채우는 weight=1 View -->
             <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
+                android:layout_width="58dp"
+                android:layout_height="0dp" />
 
             <ImageButton
                 android:id="@+id/btnPlus"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
                 android:contentDescription="+"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@android:drawable/ic_input_add"/>
         </LinearLayout>
     </LinearLayout>
+    <TextView
+        android:id="@+id/tvDots"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:textSize="12sp"/>
 
 </com.google.android.material.card.MaterialCardView>

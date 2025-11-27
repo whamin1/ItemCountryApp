@@ -34,6 +34,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.text.TextWatcher
 import android.util.Log
 import androidx.appcompat.widget.Toolbar
+import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
@@ -94,7 +95,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         viewLifecycleOwner.lifecycleScope.launch {
             val dao = AppDatabase.get(requireActivity()).itemCountryDao()
             dao.observeItemsWithOff().collect { list ->
-                val m = buildMap<Pair<String, String>, Int> {
+                val m = buildMap {
                     list.forEach { w ->
                         put(w.item to w.country, w.offHave)
                     }
@@ -173,6 +174,10 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         adapter = EntryAdapter(
             onItemLongClick = { head, list -> showDeleteDialog(head, list) },
             onPickRows = { head, rows ->
+                if (!isCountMode.value) {
+                    showOffDialog(head, rows)
+                    return@EntryAdapter
+                }
                 when (rows.size) {
                     0 -> Unit
                     1 -> {
@@ -243,58 +248,79 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         // 6) Flow 수집 (중첩 collect 금지 → combine으로 한 번에)
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(
-                    vm.uiStateItemQty,     // 아이템→나라
-                    vm.uiStateCountryQty,  // 나라→아이템
-                    isCountryMode,
-                    isCountMode,
-                    offHaveMapFlow
-                ) { itemMap, countryMap, countryMode, countMode, offMap ->
-                    // 👇 5개를 한 묶음으로 반환할 수 없으니 Triple 안에 Pair를 넣자
-                    Triple(countryMode, if (countryMode) countryMap else itemMap, Pair(countMode, offMap))
-                }.collect { triple ->
-                    val countryMode = triple.first
-                    val map = triple.second
-                    val countMode = triple.third.first
-                    val offMap = triple.third.second
+                launch{
+                    combine(
+                        vm.uiStateItemQty,     // 아이템→나라
+                        vm.uiStateCountryQty,  // 나라→아이템
+                        isCountryMode,
+                        isCountMode,
+                        offHaveMapFlow
+                    ) { itemMap, countryMap, countryMode, countMode, offMap ->
+                        // 👇 5개를 한 묶음으로 반환할 수 없으니 Triple 안에 Pair를 넣자
+                        Triple(
+                            countryMode,
+                            if (countryMode) countryMap else itemMap,
+                            Pair(countMode, offMap)
+                        )
+                    }.collect { triple ->
+                        val countryMode = triple.first
+                        val map = triple.second
+                        val countMode = triple.third.first
+                        val offMap = triple.third.second
 
-                    adapter.submitData(map)
-                    adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
+                        adapter.submitData(map)
+                        adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
 
-                    // ✅ 저장 OFF 모드일 땐 offHave 표기
-                    adapter.setOffHaveMode(enabled = !countMode, offHave = offMap)
+                        // ✅ 저장 OFF 모드일 땐 offHave 표기
+                        adapter.setOffHaveMode(enabled = !countMode, offHave = offMap)
 
 
-                    updateFabSaveLabel()
-                    val sections = adapter.availableSections()
-                    indexBar.text = sections.joinToString("\n")
-                    fitIndexBarLineSpacing()
+                        updateFabSaveLabel()
+                        val sections = adapter.availableSections()
+                        indexBar.text = sections.joinToString("\n")
+                        fitIndexBarLineSpacing()
+                    }
+                }
+                launch {
+                    vm.recentTouched.collect { list ->
+                        updateRecentUI(list)
+                    }
                 }
             }
         }
 
-//        viewLifecycleOwner.lifecycleScope.launch {
-//            val db = AppDatabase.get(requireContext())
-//            val sheetDao = db.sheetDao()
-//
-//            // 이미 시트가 있으면 중복생성 안 함
-//            val count = sheetDao.observeAllSheets().firstOrNull()?.size ?: 0
-//            if (count == 0) {
-//                val sheetId1 = sheetDao.insertSheet(SheetEntity(title = "테스트 시트 1"))
-//                val sheetId2 = sheetDao.insertSheet(SheetEntity(title = "테스트 시트 2"))
-//
-//                sheetDao.insertSheetLines(
-//                    listOf(
-//                        SheetLineEntity(sheetId = sheetId1, item = "T-shirt", country = "한국", needed = 10, have = 4, weight = 0.5f, price = 15000),
-//                        SheetLineEntity(sheetId = sheetId1, item = "Jeans", country = "일본", needed = 5, have = 2, weight = 0.8f, price = 35000),
-//                        SheetLineEntity(sheetId = sheetId2, item = "Socks", country = "한국", needed = 20, have = 15, weight = 0.1f, price = 3000),
-//                        SheetLineEntity(sheetId = sheetId2, item = "Hat", country = "미국", needed = 3, have = 1, weight = 0.3f, price = 12000)
-//                    )
-//                )
-//
-//                Toast.makeText(requireContext(), "테스트 시트 2개 생성 완료!", Toast.LENGTH_SHORT).show()
-//            }
-//        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val db = AppDatabase.get(requireContext())
+            val sheetDao = db.sheetDao()
+
+            // 이미 시트가 있으면 중복생성 안 함
+            val count = sheetDao.observeAllSheets().firstOrNull()?.size ?: 0
+            if (count == 0) {
+                val asiaLines = listOf(
+                    SheetLineEntity(item="티셔츠", country="한국", needed=100, have=0, weight=0.2f, price=5000),
+                    SheetLineEntity(item="티셔츠", country="중국", needed=120, have=0, weight=0.18f, price=4500),
+                    SheetLineEntity(item="양말", country="한국", needed=300, have=0, weight=0.05f, price=800),
+                    SheetLineEntity(item="모자", country="인도네시아", needed=80, have=0, weight=0.1f, price=2500),
+                    SheetLineEntity(item="후드티", country="베트남", needed=60, have=0, weight=0.5f, price=12000)
+                )
+                val americaLines = listOf(
+                    SheetLineEntity(item="티셔츠", country="미국", needed=90, have=0, weight=0.22f, price=6000),
+                    SheetLineEntity(item="후드티", country="캐나다", needed=70, have=0, weight=0.55f, price=15000),
+                    SheetLineEntity(item="데님팬츠", country="멕시코", needed=50, have=0, weight=0.7f, price=8000)
+                )
+                val europeLines = listOf(
+                    SheetLineEntity(item="셔츠", country="독일", needed=110, have=0, weight=0.25f, price=9000),
+                    SheetLineEntity(item="코트", country="프랑스", needed=40, have=0, weight=1.2f, price=30000),
+                    SheetLineEntity(item="신발", country="이탈리아", needed=70, have=0, weight=0.9f, price=20000)
+                )
+
+                vm.createSheet("Asia Offer", asiaLines)
+                vm.createSheet("America Offer", americaLines)
+                vm.createSheet("Europe Offer", europeLines)
+
+                Toast.makeText(requireContext(), "테스트 시트 2개 생성 완료!", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         viewLifecycleOwner.lifecycleScope.launch {
             val dao = AppDatabase.get(requireContext()).itemCountryDao()
@@ -305,6 +331,29 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             }
         }
 
+    }
+
+    private fun showTouchedToast(item: String, country: String, lastTs: Long?) {
+        val fmt = SimpleDateFormat("HH:mm", Locale.KOREA)
+        val last = lastTs?.let { fmt.format(Date(it)) } ?: "처음"
+        val msg = "$item ($country) 클릭! (이전: $last)"
+        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateRecentUI(list: List<ItemCountryDao.RecentRow>) {
+        val tvRecent = view?.findViewById<TextView>(R.id.tvRecentItems) ?: return
+
+        if (list.isEmpty()) {
+            tvRecent.text = "최근 클릭 없음"
+            return
+        }
+
+        val fmt = SimpleDateFormat("HH:mm", Locale.KOREA)
+
+        tvRecent.text = list.joinToString("\n") { r ->
+            val time = r.ts?.let { fmt.format(Date(it)) } ?: "-"
+            "• ${r.item} (${r.country}) — $time"
+        }
     }
 
     private fun saveSelectedCountries(selectedCountries: List<String>) {
@@ -431,6 +480,19 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 }
             }
 
+            viewLifecycleOwner.lifecycleScope.launch {
+                val itemId = itemDao.getItemIdByName(item)
+                val countryId = itemDao.getCountryIdByName(country)
+
+                if (itemId != null && countryId != null) {
+                    val lastTs = itemDao.getLastClickedAt(itemId, countryId)
+                    showTouchedToast(item, country, lastTs)
+
+                    // 🔥 클릭 기록 업데이트도 여기서
+                    itemDao.updateLastClickedAt(itemId, countryId, System.currentTimeMillis())
+                }
+            }
+
             adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
             updateFabSaveLabel()
             return
@@ -529,7 +591,116 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         return result
     }
 
+    private fun showOffDialog(head: String, rows: List<Row>) {
+        // 1) rows가 1개일 때 → 즉시 다이얼로그
+        if (rows.size == 1) {
+            val r = rows.first()
 
+            val countryMode = isCountryMode.value
+            val item = if (!countryMode) head else r.name
+            val country = if (!countryMode) r.name else head
+
+            showOffAmountDialog(item, country)
+            return
+        }
+
+        // 2) rows가 여러 개일 때 → 선택 바텀시트
+        val dialog = BottomSheetDialog(requireContext())
+        val v = layoutInflater.inflate(R.layout.bottom_sheet_row_picker, null)
+        dialog.setContentView(v)
+
+        val listView = v.findViewById<ListView>(R.id.listRows)
+        val labels = rows.map { r -> "${r.name} (필요: ${r.needed}, 보유: ${r.have})" }
+        listView.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, labels)
+
+        listView.setOnItemClickListener { _, _, pos, _ ->
+            val r = rows[pos]
+
+            val countryMode = isCountryMode.value
+            val item = if (!countryMode) head else r.name
+            val country = if (!countryMode) r.name else head
+
+            dialog.dismiss()
+            showOffAmountDialog(item, country)
+        }
+
+        dialog.show()
+    }
+    private fun showOffAmountDialog(item: String, country: String) {
+        val dialogView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_offmode, null)
+
+        val tvTitle = dialogView.findViewById<TextView>(R.id.tvTitle)
+        val etOffCount = dialogView.findViewById<EditText>(R.id.etOffCount)
+        val btnMinus10 = dialogView.findViewById<Button>(R.id.btnMinus10)
+        val btnMinus1  = dialogView.findViewById<Button>(R.id.btnMinus1)
+        val btnPlus1   = dialogView.findViewById<Button>(R.id.btnPlus1)
+        val btnPlus10  = dialogView.findViewById<Button>(R.id.btnPlus10)
+
+        tvTitle.text = "$item ($country)"
+
+        val dlg = MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Off 모드 수량 설정")
+            .setView(dialogView)
+            .setPositiveButton("저장", null)
+            .setNegativeButton("취소", null)
+            .create()
+
+        dlg.setOnShowListener {
+            val btnSave = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+
+            var baseOff = 0  // 현재 offHave
+
+            // 1) 현재 offHave 읽어서 기본값 세팅
+            viewLifecycleOwner.lifecycleScope.launch {
+                val itemId = itemDao.getItemIdByName(item) ?: return@launch
+                val countryId = itemDao.getCountryIdByName(country) ?: return@launch
+
+                baseOff = itemDao.getOffHave(itemId, countryId)  // 이미 있는 함수
+                etOffCount.setText(baseOff.toString())
+            }
+
+            fun adjust(delta: Int) {
+                val cur = etOffCount.text.toString().toIntOrNull() ?: 0
+                val next = (cur + delta).coerceAtLeast(0)
+                etOffCount.setText(next.toString())
+            }
+
+            btnMinus10.setOnClickListener { adjust(-10) }
+            btnMinus1.setOnClickListener  { adjust(-1) }
+            btnPlus1.setOnClickListener   { adjust(+1) }
+            btnPlus10.setOnClickListener  { adjust(+10) }
+
+            // 2) 저장 버튼: "목표값 - 현재값" 만큼 한 번에 로그 반영
+            btnSave.setOnClickListener {
+                val target = etOffCount.text.toString().toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val delta = target - baseOff   // +면 증가, -면 감소
+
+                if (delta == 0) {
+                    Toast.makeText(requireContext(), "변경된 수량이 없습니다.", Toast.LENGTH_SHORT).show()
+                    dlg.dismiss()
+                    return@setOnClickListener
+                }
+
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val itemId = itemDao.getItemIdByName(item) ?: return@launch
+                    val countryId = itemDao.getCountryIdByName(country) ?: return@launch
+
+                    itemDao.addOffDelta(itemId, countryId, delta)  // ✅ 한 번에 처리
+
+                    Toast.makeText(
+                        requireContext(),
+                        "Off 수량 ${baseOff} → $target (Δ $delta) 반영",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                dlg.dismiss()
+            }
+        }
+
+        dlg.show()
+    }
     private fun showQuantityDialog(
         presetItem: String? = null,
         presetCountry: String? = null,

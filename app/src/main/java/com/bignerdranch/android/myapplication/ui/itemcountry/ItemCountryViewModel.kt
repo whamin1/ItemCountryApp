@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
+import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
@@ -202,12 +203,53 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun addOffClick(itemId: Long, countryId: Long, delta: Int = 1) = viewModelScope.launch {
-        repository.addOff(itemId, countryId, delta)
+        repository.addOffAndTouch(itemId, countryId, delta)
     }
 
     fun removeOffClick(itemId: Long, countryId: Long) {
         viewModelScope.launch {
             repository.removeOffClick(itemId, countryId)
         }
+    }
+    val recentTouched = repository.observeRecentTouched()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
+
+    suspend fun toggleCountryHidden(
+        sheetId: Long,
+        country: String,
+        newHidden: Boolean
+    )  {
+        repo.toggleCountryHidden(sheetId, country, newHidden)
+    }
+
+    fun renameSheet(sheetId: Long, title: String) = viewModelScope.launch {
+        repo.renameSheet(sheetId, title)
+    }
+
+    suspend fun renameCountryInSheet(sheetId: Long, oldCountry: String, newCountry: String) {
+        repo.renameCountryInSheet(sheetId, oldCountry, newCountry)
+    }
+
+    suspend fun deleteCountryInSheet(sheetId: Long, country: String) {
+        repo.deleteSheetLinesByCountry(sheetId, country)
+    }
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    val sheetItems: StateFlow<List<ItemSearchRow>> = searchQuery
+        .debounce(300)
+        .distinctUntilChanged()
+        .flatMapLatest { q ->
+            repo.searchSheetItems(q)
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+    fun updateSearchQuery(q: String) {
+        _searchQuery.value = q
     }
 }

@@ -223,8 +223,14 @@ class EntryAdapter(
             tvHead.text = highlight(head, q)
             chipGroup.removeAllViews()
             rows.forEach { r ->
-                val chipView = inflater.inflate(R.layout.view_counter_chip, chipGroup, false)
+                val layoutRes = if (tempIsCountryMode) {
+                    R.layout.view_counter_chip_country
+                } else {
+                    R.layout.view_counter_chip
+                }
+                val chipView = inflater.inflate(layoutRes, chipGroup, false)
                 val tv = chipView.findViewById<TextView>(R.id.tvLabel)
+                val tvDots = chipView.findViewById<TextView>(R.id.tvDots)
                 val btnMinus = chipView.findViewById<ImageButton>(R.id.btnMinus)
                 val btnPlus = chipView.findViewById<ImageButton>(R.id.btnPlus)
 
@@ -242,7 +248,13 @@ class EntryAdapter(
                 val labelPrefix = if (showOffHave) "O" else "S"
                 // (선택) 임시 증감도 같이 보여주고 싶으면 extra 붙이기
                 val extra = tempHave[key]?.let { v -> if (v != baseHave) " (${v - baseHave})" else "" } ?: "(0)"
-                tv.text = "${r.name} (N:${r.needed}, $labelPrefix:${displayHave})$extra"
+                if (!tempIsCountryMode) {
+                    tv.text = "${r.name} (N:${r.needed}, $labelPrefix:${displayHave})$extra"
+                } else{
+                    tv.text = "${r.name} \n (N:${r.needed}, $labelPrefix:${displayHave})$extra"
+                }
+
+                updateDots(tvDots, displayHave, r.needed)
 
                 btnMinus.setOnClickListener {
                     onDelta(head, r, -1)   // 👈 HomeFragment 쪽에서 pending 반영
@@ -263,6 +275,30 @@ class EntryAdapter(
                 chipGroup.addView(chipView)
             }
         }
+    }
+
+    private fun updateDots(tvDots: TextView, have: Int, needed: Int) {
+        tvDots.post {
+            val totalWidth = tvDots.width
+            if (totalWidth <= 0) return@post
+
+            val dotWidth = tvDots.paint.measureText("●")
+            val space = tvDots.paint.measureText(" ")
+            val oneSlot = (dotWidth + space).coerceAtLeast(1f)
+
+            val maxSlotsByWidth = (totalWidth / oneSlot).toInt().coerceAtLeast(1)
+            val slots = maxSlotsByWidth
+            tvDots.text = buildDots(have, slots)
+        }
+    }
+
+    private fun buildDots(have: Int, slots: Int): String {
+        val maxSlots = slots.coerceAtLeast(1)
+        val full = have.coerceIn(0, maxSlots)
+        val empty = (maxSlots - full).coerceAtLeast(0)
+
+        return "●".repeat(full) + "○".repeat(empty)
+
     }
 
     private var showOffHave: Boolean = false
