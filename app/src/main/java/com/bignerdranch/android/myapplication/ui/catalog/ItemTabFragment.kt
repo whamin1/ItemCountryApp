@@ -37,7 +37,9 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     private lateinit var recycler: RecyclerView
     private lateinit var adapter: PlusLogAdapter
     private var allRows: List<ItemCountryDao.QuantityRow> = emptyList()
-    private var selectedDayMillis: Long? = null
+    private var selectedStartMillis: Long? = null
+    private var selectedEndMillis: Long? = null
+    private var toolbar: MaterialToolbar? = null
     private var currentRows: List<ItemCountryDao.QuantityRow> = emptyList()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -45,14 +47,16 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
         val toolbar: MaterialToolbar = view.findViewById(R.id.toolbar)
         toolbar.inflateMenu(R.menu.menu_item_tab)
+
         toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_filter_date -> {
-                    showDatePicker()
+                    showDateRangerPicker()
                     true
                 }
                 R.id.action_clear_filter -> {
-                    selectedDayMillis = null
+                    selectedStartMillis = null
+                    selectedEndMillis = null
                     applyFilter()
                     true
                 }
@@ -63,6 +67,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                 else -> false
             }
         }
+        updateToolbarSubtitle()
 
         recycler = view.findViewById(R.id.recycler)
         recycler.layoutManager = LinearLayoutManager(requireContext())
@@ -70,7 +75,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         recycler.adapter = adapter
         // 최근 로그 불러오되, delta > 0 (버튼 + 로 증가한 것만) 필터
         viewLifecycleOwner.lifecycleScope.launch {
-            val rows = dao.getRecentPlusClicks(300) // 필요하면 개수 조절
+            val rows = dao.getRecentPlusClicks(5000) // 필요하면 개수 조절
                 .filter { it.delta > 0 }             // ← 핵심: 플러스만 보기
             allRows = rows
             applyFilter()
@@ -138,23 +143,41 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         val tv: TextView = v.findViewById(R.id.tvRow)
     }
 
+    //툴바 기간
+    private fun updateToolbarSubtitle() {
+        val tb = toolbar ?: return
+
+        val start = selectedStartMillis
+        val end = selectedEndMillis
+
+        tb.subtitle = when {
+            start != null && end != null -> {
+                val dayFmt = SimpleDateFormat("yy/MM/dd", Locale.getDefault())
+                val s = dayFmt.format(Date(start))
+                val e = dayFmt.format(Date(end))
+                "$s ~ $e"
+            }
+            start != null && end == null -> {
+                val dayFmt = SimpleDateFormat("yy/MM/dd", Locale.getDefault())
+                val s = dayFmt.format(Date(start))
+                "시작: $s (끝 날짜 선택 전)"
+            }
+            else -> {
+                "전체 기간"
+            }
+        }
+    }
+
     // ✅ 날짜 필터 적용 함수
     private fun applyFilter() {
-        val listToShow = selectedDayMillis?.let { dayMillis ->
-            // dayMillis 기준으로 그 날의 0시 ~ 23:59:59 계산
-            val cal = Calendar.getInstance().apply {
-                timeInMillis = dayMillis
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            val start = cal.timeInMillis
-            cal.add(Calendar.DAY_OF_MONTH, 1)
-            val end = cal.timeInMillis - 1
+        val start = selectedStartMillis
+        val end = selectedEndMillis
 
+        val listToShow = if (start != null && end != null) {
             allRows.filter { it.timestamp in start..end }
-        } ?: allRows
+        } else {
+            allRows
+        }
 
         currentRows = listToShow
 
@@ -162,24 +185,46 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     }
 
     // ✅ 날짜 선택 다이얼로그
-    private fun showDatePicker() {
+    private fun showDateRangerPicker() {
         val cal = Calendar.getInstance()
-        val dialog = android.app.DatePickerDialog(
+        // 1) 사작 날짜 선택
+        val startDialog = android.app.DatePickerDialog(
             requireContext(),
             { _, year, month, dayOfMonth ->
-                // 선택한 날짜의 0시 기준 millis 저장
-                val c = Calendar.getInstance().apply {
-                    set(year, month, dayOfMonth, 0, 0, 0)
+                val startCal = Calendar.getInstance().apply {
+                    set(year, month, dayOfMonth)
                     set(Calendar.MILLISECOND, 0)
                 }
-                selectedDayMillis = c.timeInMillis
-                applyFilter()
+                val startMillis = startCal.timeInMillis
+
+                // 2) 끝 날짜 선택
+                val endDialog = android.app.DatePickerDialog(
+                    requireContext(),
+                    { _, eYear, eMonth, eDayOfMonth ->
+                        val endCal = Calendar.getInstance().apply {
+                            set(eYear, eMonth, eDayOfMonth)
+                            set(Calendar.MILLISECOND, 999)
+                        }
+                        val endMillis = endCal.timeInMillis
+
+                        //기간 저장
+                        selectedStartMillis = startMillis
+                        selectedEndMillis = endMillis
+
+                        applyFilter()
+                    },
+                    year, month, dayOfMonth
+                )
+                endDialog.datePicker.minDate = startMillis
+                endDialog.setTitle("끝 날짜 선택")
+                endDialog.show()
             },
             cal.get(Calendar.YEAR),
             cal.get(Calendar.MONTH),
             cal.get(Calendar.DAY_OF_MONTH)
         )
-        dialog.show()
+        startDialog.setTitle("시작 날짜 선택")
+        startDialog.show()
     }
 
     private fun exportToCsv() {
@@ -213,5 +258,11 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(intent, "엑셀/이메일로 보내기"))
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        toolbar = null
+        recycler.adapter = null
     }
 }

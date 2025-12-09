@@ -174,8 +174,42 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
                     onDelete(row.name)
                 }
 
-                // 미리보기도 지금은 안 씀
-                preview.visibility = View.GONE
+                // 미리보기: "아이템 N개"
+                preview.visibility = View.VISIBLE
+                preview.removeAllViews()
+
+                val itemNames = row.items
+                    ?.split(",")
+                    ?.map { it.trim() }
+                    ?.filter { it.isNotEmpty() }
+                    ?.distinct()
+                    ?.take(5)
+                    ?: emptyList()
+
+                if (itemNames.isEmpty()) {
+                    preview.addView(
+                        TextView(itemView.context).apply {
+                            text = "아이템 없음"
+                            textSize = 14f
+                            setTextColor(0xFF333333.toInt())
+                            setPadding(0, 4, 0, 4)
+                        }
+                    )
+                } else {
+                    val extraCount = (row.lineCount - itemNames.size).coerceAtLeast(0)
+                    if (extraCount > 0) {
+                        preview.addView(
+                            TextView(itemView.context).apply {
+                                text = "+ ${extraCount}개 더"
+                                textSize = 14f
+                                setTextColor(0xFF666666.toInt())
+                                setPadding(0, 4, 0, 4)
+                            }
+                        )
+                    }
+                }
+
+
             }
         }
 
@@ -193,8 +227,7 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
     }
     //정령 함수
     private fun loadCountries() {
-        val dao = AppDatabase.get(requireContext())
-            .itemCountryDao()
+        val dao = AppDatabase.get(requireContext()).itemCountryDao()
 
         viewLifecycleOwner.lifecycleScope.launch {
             val rows: List<ItemCountryDao.CountryRow> = dao.getCountriesBySheet(sheetId)

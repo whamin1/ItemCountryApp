@@ -367,7 +367,7 @@ WHERE c.name = :country
 ORDER BY q.timestamp DESC
 LIMIT :limit
 """)
-    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 500): List<QuantityRow>
+    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 5000): List<QuantityRow>
 
     @Query("""
         UPDATE item_country
@@ -682,7 +682,9 @@ WHERE itemId = :itemId
     // ✅ ItemCountryDao.kt 안에 그대로 두고 이걸로 교체
     @Query("""
     SELECT country AS name,
-    MAX(hidden) AS hidden
+    MAX(hidden) AS hidden,
+    COUNT(*) AS lineCount,
+    GROUP_CONCAT(item, ', ') AS items
     FROM sheet_lines
     WHERE sheetId = :sheetId
     GROUP BY country
@@ -692,7 +694,9 @@ WHERE itemId = :itemId
 
     data class CountryRow(
         val name: String,
-        var hidden: Boolean
+        var hidden: Boolean,
+        val lineCount: Int,
+        val items: String
     )
 
     @Query("""
