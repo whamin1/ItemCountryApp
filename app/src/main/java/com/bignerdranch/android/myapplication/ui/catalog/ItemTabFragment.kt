@@ -41,14 +41,37 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     private var selectedEndMillis: Long? = null
     private var toolbar: MaterialToolbar? = null
     private var currentRows: List<ItemCountryDao.QuantityRow> = emptyList()
+    private var searchQuery: String = ""
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         val toolbar: MaterialToolbar = view.findViewById(R.id.toolbar)
-        toolbar.inflateMenu(R.menu.menu_item_tab)
+        val tb = toolbar!!
+        tb.inflateMenu(R.menu.menu_item_tab)
 
-        toolbar.setOnMenuItemClickListener { item ->
+        // ✅ 메뉴에서 SearchView 꺼내기
+        val searchItem = tb.menu.findItem(R.id.action_search)
+        val searchView = searchItem.actionView as androidx.appcompat.widget.SearchView
+
+        searchView.queryHint = "아이템/나라 검색"
+
+        searchView.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                searchQuery = query.orEmpty()
+                applyFilter()   // 검색어 바뀔 때마다 필터 다시 적용
+                return true
+            }
+
+            override fun onQueryTextChange(newText: String?): Boolean {
+                searchQuery = newText.orEmpty()
+                applyFilter()
+                return true
+            }
+        })
+
+
+        tb.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_filter_date -> {
                     showDateRangerPicker()
@@ -173,13 +196,31 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         val start = selectedStartMillis
         val end = selectedEndMillis
 
-        val listToShow = if (start != null && end != null) {
+        val base = if (start != null && end != null) {
             allRows.filter { it.timestamp in start..end }
         } else {
             allRows
         }
 
-        currentRows = listToShow
+        currentRows = base
+
+        val q = searchQuery.trim()
+        val finalList = if (q.isNotEmpty()) {
+            base.filter { row ->
+                row.item.contains(q, ignoreCase = true || row.country.contains(q, ignoreCase = true))
+            }
+        } else {
+            base
+        }
+
+        adapter.submit(finalList)
+        updateToolbarSubtitle()
+
+        val listToShow = if (start != null && end != null) {
+            allRows.filter { it.timestamp in start..end }
+        } else {
+            allRows
+        }
 
         adapter.submit(listToShow)
     }

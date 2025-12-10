@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.data.local.dao
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Embedded
@@ -17,6 +18,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.AdditionLogEntit
 import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
+import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
@@ -135,6 +137,7 @@ SELECT i.name AS item,
 FROM items i
 JOIN item_country ic ON i.id = ic.itemId
 JOIN countries c ON c.id = ic.countryId
+WHERE c.hidden = 0
 ORDER BY i.name, c.name
 """)
     fun observeItemCountryRows(): Flow<List<ItemCountryRow>>
@@ -364,7 +367,7 @@ WHERE c.name = :country
 ORDER BY q.timestamp DESC
 LIMIT :limit
 """)
-    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 500): List<QuantityRow>
+    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 5000): List<QuantityRow>
 
     @Query("""
         UPDATE item_country
@@ -453,10 +456,15 @@ WHERE c.name = :country
 
         @Query("UPDATE sheets SET hidden = :hidden WHERE id = :sheetId")
         suspend fun setSheetHidden(sheetId: Long, hidden: Boolean)
+        @Query("UPDATE sheets SET title = :title WHERE id = :sheetId")
+        suspend fun updateSheetTitle(sheetId: Long, title: String)
+        @Query("UPDATE sheet_lines SET country = :newCountry WHERE sheetId = :sheetId AND country = :oldCountry")
+        suspend fun renameCountryInSheet(sheetId: Long, oldCountry: String, newCountry: String)
 
         @Query("DELETE FROM sheet_lines WHERE sheetId = :sheetId")
         suspend fun deleteSheetLinesBySheet(sheetId: Long)
-
+        @Query("DELETE FROM sheet_lines WHERE sheetId = :sheetId AND country = :country")
+        suspend fun deleteSheetLinesByCountry(sheetId: Long, country: String)
         @Query("DELETE FROM sheets WHERE id = :sheetId")
         suspend fun deleteSheetById(sheetId: Long)
         @Transaction
@@ -528,7 +536,8 @@ SET
         val offHave: Int,     // OFF 모드로 쌓인 합계(Σ delta where batchId=0)
         val needed: Int,
         val weight: Float?,
-        val price: Int?
+        val price: Int?,
+        val countryHidden: Boolean
     )
 
     // (2) OFF 모드 집계 포함해 관찰
@@ -536,22 +545,24 @@ SET
 SELECT 
   ic.itemId,
   ic.countryId,
-  i.name   AS item,
-  c.name   AS country,
-  ic.have  AS have,
+  i.name AS item,
+  c.name AS country,
+  ic.have AS have,
   COALESCE((
     SELECT SUM(q.delta) 
     FROM quantity_log q
     WHERE q.itemId = ic.itemId 
       AND q.countryId = ic.countryId
-      AND COALESCE(q.batchId, 0) = 0   -- OFF 모드에서 누른 로그만
+      AND COALESCE(q.batchId, 0) = 0
   ), 0) AS offHave,
   ic.needed AS needed,
   ic.weight AS weight,
-  ic.price  AS price
+  ic.price AS price,
+  c.hidden AS countryHidden
 FROM item_country ic
-JOIN items i     ON i.id = ic.itemId
+JOIN items i ON i.id = ic.itemId
 JOIN countries c ON c.id = ic.countryId
+WHERE c.hidden = 0
 ORDER BY i.name, c.name
 """)
     fun observeItemsWithOff(): kotlinx.coroutines.flow.Flow<List<ItemWithOff>>
@@ -670,7 +681,10 @@ WHERE itemId = :itemId
 
     // ✅ ItemCountryDao.kt 안에 그대로 두고 이걸로 교체
     @Query("""
-    SELECT country AS name
+    SELECT country AS name,
+    MAX(hidden) AS hidden,
+    COUNT(*) AS lineCount,
+    GROUP_CONCAT(item, ', ') AS items
     FROM sheet_lines
     WHERE sheetId = :sheetId
     GROUP BY country
@@ -679,7 +693,117 @@ WHERE itemId = :itemId
     suspend fun getCountriesBySheet(sheetId: Long): List<CountryRow>
 
     data class CountryRow(
-        val name: String
+        val name: String,
+        var hidden: Boolean,
+        val lineCount: Int,
+        val items: String
     )
 
+    @Query("""
+    UPDATE item_country
+    SET lastClickedAt = :ts
+    WHERE itemId = :itemId
+      AND countryId = :countryId
+""")
+    suspend fun updateLastClickedAt(
+        itemId: Long,
+        countryId: Long,
+        ts: Long
+    )
+
+    @Query("""
+        SELECT i.name AS item,
+               c.name AS country,
+               ic.lastClickedAt AS ts
+        FROM item_country ic
+        JOIN items i ON i.id = ic.itemId
+        JOIN countries c ON c.id = ic.countryId
+        WHERE ic.lastClickedAt IS NOT NULL
+        ORDER BY ic.lastClickedAt DESC
+        LIMIT 3
+    """)
+    fun getRecentTouched(): Flow<List<RecentRow>>
+
+    data class RecentRow(
+        val item: String,
+        val country: String,
+        val ts: Long?
+    )
+
+    @Query("""
+    SELECT lastClickedAt 
+    FROM item_country 
+    WHERE itemId = :itemId AND countryId = :countryId 
+    LIMIT 1
+""")
+    suspend fun getLastClickedAt(itemId: Long, countryId: Long): Long?
+
+    @androidx.room.Transaction
+    suspend fun addOffDelta(itemId: Long, countryId: Long, delta: Int) {
+        if (delta == 0) return
+
+        val before = getOffHave(itemId, countryId)
+        val after = before + delta
+
+        insertQuantityLog(
+            QuantityLogEntity(
+                id = 0,
+                itemId = itemId,
+                countryId = countryId,
+                fromHave = before,
+                toHave = after,
+                delta = delta,
+                timestamp = System.currentTimeMillis(),
+                batchId = null,   // OFF 모드 그대로
+                archived = 0
+            )
+        )
+    }
+    @Query("""
+    UPDATE sheet_lines
+    SET hidden = :newHidden
+    WHERE sheetId = :sheetId
+      AND country = :country
+""")
+    suspend fun toggleCountryHidden(
+        sheetId: Long,
+        country: String,
+        newHidden: Boolean
+    )
+    @Query("""
+UPDATE countries
+SET hidden = :newHidden
+WHERE name = :country
+""")
+    suspend fun setCountryHidden(country: String, newHidden: Boolean)
+    data class CountryDebugRow(
+        val id: Long,
+        val name: String,
+        val hidden: Boolean
+    )
+
+    @Query("""
+SELECT id, name, hidden
+FROM countries
+ORDER BY name
+""")
+    suspend fun debugCountries(): List<CountryDebugRow>
+
+    @Query("""
+        SELECT
+        l.sheetId AS sheetId,
+s.title AS sheetTitle,
+        l.country AS country,
+        l.item AS item,
+        l.price AS price,
+        l.weight AS weight
+        FROM sheet_lines AS l
+        JOIN sheets AS s ON l.sheetId = s.id
+        WHERE :q = ''
+        OR l.item LIKE '%' || :q || '%'
+        OR l.country LIKE '%' || :q || '%'
+        OR s.title LIKE '%' || :q || '%'
+        ORDER BY s.title, l.country, l.item
+    """)
+    fun searchItems(q: String): Flow<List<ItemSearchRow>>
 }

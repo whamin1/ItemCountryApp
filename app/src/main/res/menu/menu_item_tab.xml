@@ -14,4 +14,10 @@
         android:id="@+id/action_export_excel"
         android:title="액셀로 내보내기"
         android:showAsAction="never"/>
+    <item
+        android:id="@+id/action_search"
+        android:title="검색"
+        android:icon="@drawable/ic_search"
+        app:showAsAction="ifRoom|collapseActionView"
+        app:actionViewClass="androidx.appcompat.widget.SearchView" />
 </menu>
