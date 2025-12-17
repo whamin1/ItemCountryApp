@@ -31,7 +31,7 @@ import java.util.concurrent.Executors
         SheetEntity::class,
         SheetLineEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -63,10 +63,10 @@ abstract class AppDatabase : RoomDatabase() {
                         Executors.newSingleThreadExecutor()
                     )
                     // ❌ 이건 지우고
-                    // .fallbackToDestructiveMigration()
+                     .fallbackToDestructiveMigration()
 
-                    // ✅ 마이그레이션 추가
-                    .addMigrations(MIGRATION_14_15)
+//                    // ✅ 마이그레이션 추가
+//                    .addMigrations(MIGRATION_14_15)
                     .build()
                     .also { INSTANCE = it }
             }

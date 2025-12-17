@@ -28,6 +28,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.launch
 
@@ -36,15 +37,40 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
     private val vm: ItemCountryViewModel by activityViewModels()
     private lateinit var adapter: SheetAdapter
     private var sortMode: SheetSortMode = SheetSortMode.CREATE_DESC
+    private var lastSheets: List<ItemCountryDao.SheetWithLines> = emptyList()
+
 
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        val toolbar = view.findViewById<MaterialToolbar>(R.id.toolbar_sheets)
+        toolbar.title = "시트 관리"
+        toolbar.inflateMenu(R.menu.menu_sheets)
+        toolbar.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.action_sort_created -> sortMode = SheetSortMode.CREATE_DESC
+                R.id.action_sort_title -> sortMode = SheetSortMode.TITLE_ASC
+                R.id.action_sort_lines -> sortMode = SheetSortMode.LINE_COUNT_DESC
+                R.id.action_search -> {
+                    findNavController().navigate(R.id.sheetSearchFragment)
+                    return@setOnMenuItemClickListener true
+                }
+                else -> return@setOnMenuItemClickListener false
+            }
+            applySortAndSubmit()
+            true
+        }
+
         val rv = view.findViewById<RecyclerView>(R.id.rvSheets)
         rv.layoutManager = LinearLayoutManager(requireContext())
         adapter = SheetAdapter(
             onApply = { sheet -> applySheet(sheet) },
-            onToggle = { sheet -> toggleSheet(sheet) },
+            onToggle = { id, newHidden ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    vm.toggleSheetHidden(id, newHidden)
+                }
+            },
             onDelete = { sheet -> deleteSheet(sheet) },
             onOpen = { sheet -> openSheetDetail(sheet) },
             onEdit = { sheet -> showEditSheetDialog(sheet) }
@@ -61,36 +87,23 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.sheetWithLines.collect { list ->
-                    val sorted = when (sortMode) {
-                        SheetSortMode.CREATE_DESC -> list
-                        SheetSortMode.TITLE_ASC -> list.sortedBy { it.sheet.title }
-                        SheetSortMode.LINE_COUNT_DESC -> list.sortedByDescending { it.lines.size }
-                    }
-                    adapter.submit(list)
+                    lastSheets = list
+                    applySortAndSubmit()
                 }
             }
         }
-        requireActivity().addMenuProvider(object : androidx.core.view.MenuProvider {
-            override fun onCreateMenu(
-                menu: Menu,
-                menuInflater: MenuInflater
-            ) {
-                menuInflater.inflate(R.menu.menu_sheets, menu)
-            }
-
-            override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
-                sortMode = when (menuItem.itemId) {
-                    R.id.action_sort_created -> SheetSortMode.CREATE_DESC
-                    R.id.action_sort_title -> SheetSortMode.TITLE_ASC
-                    R.id.action_sort_lines -> SheetSortMode.LINE_COUNT_DESC
-                    else -> return false
-                }
-                return true
-            }
-        }, viewLifecycleOwner, Lifecycle.State.STARTED)
 
     }
 
+    private fun applySortAndSubmit() {
+        val sorted = when (sortMode) {
+            SheetSortMode.CREATE_DESC -> lastSheets
+            SheetSortMode.TITLE_ASC -> lastSheets.sortedBy { it.sheet.title }
+            SheetSortMode.LINE_COUNT_DESC -> lastSheets.sortedByDescending { it.lines.size }
+        }
+        adapter.submit(sorted)
+
+    }
     private fun showEditSheetDialog(s: SheetEntity) {
         val v = layoutInflater.inflate(R.layout.dialog_add_sheet, null)
         val etTitle = v.findViewById<EditText>(R.id.etTitle)
@@ -152,7 +165,7 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
 
     private class SheetAdapter(
         val onApply: (SheetEntity) -> Unit,
-        val onToggle: (SheetEntity) -> Unit,
+        val onToggle: (Long, Boolean) -> Unit,
         val onDelete: (SheetEntity) -> Unit,
         val onOpen: (SheetEntity) -> Unit,
         val onEdit: (SheetEntity) -> Unit
@@ -165,12 +178,25 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
         override fun onBindViewHolder(h: VH, pos: Int) {
             val swl = data[pos]
             val s = swl.sheet
+            val countries = swl.lines
+                .filter { !it.hidden }
+                .map { it.country }
+                .distinct()
+                .take(5)
+
             h.itemView.setOnClickListener { onOpen(s) }
             h.title.text = if (s.hidden) "🔕 ${s.title}" else s.title
             h.btnApply.setOnClickListener { onApply(s) }
             h.btnEdit.setOnClickListener { onEdit(s) }
             h.btnToggle.text = if (s.hidden) "활성화" else "비활성화"
-            h.btnToggle.setOnClickListener { onToggle(s) }
+            h.btnToggle.setOnClickListener {
+                val newHidden = !s.hidden
+
+                data[pos] = swl.copy(sheet = s.copy(hidden = newHidden))
+                notifyItemChanged(pos)
+
+                onToggle(s.id, newHidden)
+            }
             h.btnDelete.setOnClickListener {
                 AlertDialog.Builder(h.itemView.context)
                     .setTitle("삭제 확인")
@@ -183,11 +209,10 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
                     .show()
             }
             h.preview.removeAllViews()
-            swl.lines.take(5).forEach { ln ->
+            countries.forEach { country ->
                 h.preview.addView(TextView(h.itemView.context).apply {
-                    text = "- ${ln.country}"
+                    text = "- $country"
                     textSize = 14f
-                    setTextColor(0xff333333.toInt())
                     setPadding(0, 4, 0, 4)
                 })
             }

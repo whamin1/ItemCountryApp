@@ -34,6 +34,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.text.TextWatcher
 import android.util.Log
 import androidx.appcompat.widget.Toolbar
+import androidx.room.util.query
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
@@ -72,8 +73,10 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private val db by lazy { AppDatabase.get(requireContext()) }
     private val itemDao by lazy { db.itemCountryDao() }
     private val archiveDao by lazy { db.saveArchiveDao() }
-
     private val offHaveMapFlow = MutableStateFlow<Map<Pair<String, String>, Int>>(emptyMap())
+
+    private var lastSearchIndex: Int = -1
+
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -226,11 +229,15 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val searchItem = toolbar.menu.findItem(R.id.action_search)
         val searchView = searchItem.actionView as SearchView
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(newText: String?): Boolean {
-                adapter.filter(newText.orEmpty())
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                moveToNextMatch(query)
                 return true
             }
-            override fun onQueryTextChange(newText: String?) = false
+            override fun onQueryTextChange(newText: String?): Boolean {
+                adapter.setHighlightQuery(newText)
+                moveToFirstMatch(newText)
+                return true
+            }
         })
 
         // 5) 스위치/플로팅버튼
@@ -333,6 +340,42 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
     }
 
+    // 🔍 첫 번째 매칭 위치로 점프
+    private fun moveToFirstMatch(query: String?) {
+        val q = query?.trim().orEmpty()
+        adapter.setHighlightQuery(q)
+
+        if (q.isEmpty()) {
+            lastSearchIndex = -1
+            return
+        }
+
+        val pos = adapter.findMatchPosition(q.orEmpty(), fromIndex = 0) ?: return
+        lastSearchIndex = pos
+
+        (recyclerView.layoutManager as? LinearLayoutManager)
+            ?.scrollToPositionWithOffset(pos, 0)
+    }
+
+    // 🔁 다음 매칭 위치로 점프 (없으면 처음으로 돌아가도 되고)
+    private fun moveToNextMatch(query: String?) {
+        val q = query?.trim().orEmpty()
+        adapter.setHighlightQuery(q)
+
+        if (q.isEmpty()) return
+
+        val start = lastSearchIndex + 1
+
+        val pos =
+            adapter.findMatchPosition(q.orEmpty(), fromIndex = start)
+                ?: adapter.findMatchPosition(q.orEmpty(), fromIndex = 0)
+                ?: return
+
+        lastSearchIndex = pos
+
+        (recyclerView.layoutManager as? LinearLayoutManager)
+            ?.scrollToPositionWithOffset(pos, 0)
+    }
     private fun showTouchedToast(item: String, country: String, lastTs: Long?) {
         val fmt = SimpleDateFormat("HH:mm", Locale.KOREA)
         val last = lastTs?.let { fmt.format(Date(it)) } ?: "처음"

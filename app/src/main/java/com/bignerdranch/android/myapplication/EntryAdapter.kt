@@ -4,6 +4,7 @@ import android.graphics.Typeface
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
+import android.util.Log.e
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -100,6 +101,29 @@ class EntryAdapter(
             e.key to e.value.map { cq -> Row(cq.name, cq.needed, cq.have) }
         }
         rebuildSections(full, currentQuery)
+    }
+
+    fun findMatchPosition(query: String, fromIndex: Int = 0): Int? {
+        if (query.isBlank()) return null
+        val q = query.lowercase()
+
+        for (i in fromIndex until items.size) {
+            when (val e = items[i]) {
+                is HeaderRow -> {
+                    if (e.title.lowercase().contains(q)) return i
+                }
+                is GroupRow -> {
+                    if (e.head.lowercase().contains(q)) return i
+                    if (e.rows.any { it.name.lowercase().contains(q) }) return i
+                }
+            }
+        }
+        return null
+    }
+
+    fun setHighlightQuery(query: String?) {
+        currentQuery = query?.trim().orEmpty()
+        notifyDataSetChanged()
     }
 
     // ----- 필터링 + 섹션 재구성 -----

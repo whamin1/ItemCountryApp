@@ -79,7 +79,7 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
             onToggle = { countryName, currentHidden ->
                 // 🔥 나라 hidden 토글
                 viewLifecycleOwner.lifecycleScope.launch {
-                    vm.toggleCountryHidden(sheetId, countryName, currentHidden)
+                    vm.toggleCountryHidden(sheetId, countryName, !currentHidden)
 
                     // 토글 후 리스트 다시 불러오기
                     loadCountries()
@@ -149,19 +149,19 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
 
                 // 🔥 비활성화 / 활성화 토글 버튼
                 btnToggle.text = if (row.hidden) "활성화" else "비활성화"
+
                 btnToggle.setOnClickListener {
+                    val pos = bindingAdapterPosition
+                    if (pos == RecyclerView.NO_POSITION) return@setOnClickListener
+
                     val newHidden = !row.hidden
-                    row.hidden = newHidden
 
-                    if (newHidden) {
-                        data.removeAt(adapterPosition)
-                        notifyItemRemoved(adapterPosition)
-                    } else {
-                        onToggle(row.name, row.hidden)
-                        return@setOnClickListener
-                    }
+                    // ✅ 즉시 UI 반영 (리스트에서 제거 X)
+                    data[pos] = row.copy(hidden = newHidden)
+                    notifyItemChanged(pos)
 
-                    onToggle(row.name, newHidden)
+                    // ✅ DB 반영
+                    onToggle(row.name, row.hidden) // row.hidden은 "이전값"이니까 콜백에서 !currentHidden로 뒤집는 구조면 OK
                 }
                 btnEdit.setOnClickListener {
                     onEdit(row.name)
@@ -183,29 +183,37 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
                     ?.map { it.trim() }
                     ?.filter { it.isNotEmpty() }
                     ?.distinct()
-                    ?.take(5)
                     ?: emptyList()
 
-                if (itemNames.isEmpty()) {
-                    preview.addView(
-                        TextView(itemView.context).apply {
-                            text = "아이템 없음"
+                val show = itemNames.take(5)
+
+                if (show.isEmpty()) {
+                    preview.addView(TextView(itemView.context).apply {
+                        text = "아이템 없음"
+                        textSize = 14f
+                        setTextColor(0xFF666666.toInt())
+                        setPadding(0, 4, 0, 4)
+                    })
+                } else {
+                    // ✅ 아이템 목록 먼저
+                    show.forEach { name ->
+                        preview.addView(TextView(itemView.context).apply {
+                            text = "- $name"
                             textSize = 14f
                             setTextColor(0xFF333333.toInt())
                             setPadding(0, 4, 0, 4)
-                        }
-                    )
-                } else {
-                    val extraCount = (row.lineCount - itemNames.size).coerceAtLeast(0)
+                        })
+                    }
+
+                    // ✅ 남은 개수 표시
+                    val extraCount = (itemNames.size - show.size).coerceAtLeast(0)
                     if (extraCount > 0) {
-                        preview.addView(
-                            TextView(itemView.context).apply {
-                                text = "+ ${extraCount}개 더"
-                                textSize = 14f
-                                setTextColor(0xFF666666.toInt())
-                                setPadding(0, 4, 0, 4)
-                            }
-                        )
+                        preview.addView(TextView(itemView.context).apply {
+                            text = "+ ${extraCount}개 더"
+                            textSize = 14f
+                            setTextColor(0xFF666666.toInt())
+                            setPadding(0, 4, 0, 4)
+                        })
                     }
                 }
 
