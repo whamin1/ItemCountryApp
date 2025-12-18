@@ -160,7 +160,7 @@ ORDER BY i.name, c.name
     ORDER BY timestamp DESC
     LIMIT :limit
 """)
-    suspend fun getQuantityLogs(itemId: Long, countryId: Long, limit: Int = 50): List<QuantityLogEntity>
+    suspend fun getQuantityLogs(itemId: Long, countryId: Long, limit: Int = 5000): List<QuantityLogEntity>
 
     data class AdditionRow(
         val id: Long = 0L,
@@ -190,7 +190,7 @@ ORDER BY i.name, c.name
     LIMIT :limit
 """)
 
-    suspend fun getRecentAdditions(limit: Int = 200): List<AdditionRow>
+    suspend fun getRecentAdditions(limit: Int = 10000): List<AdditionRow>
 
     data class QuantityRow(
         val id: Long = 0L,
@@ -288,7 +288,7 @@ WHERE q.delta > 0
 ORDER BY q.timestamp DESC
 LIMIT :limit
 """)
-    suspend fun getRecentPlusClicks(limit: Int = 200): List<QuantityRow>
+    suspend fun getRecentPlusClicks(limit: Int = 10000): List<QuantityRow>
 
     @Query("DELETE FROM quantity_log WHERE id = :id")
     suspend fun deleteQuantityLogById(id: Long)
@@ -367,7 +367,7 @@ WHERE c.name = :country
 ORDER BY q.timestamp DESC
 LIMIT :limit
 """)
-    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 5000): List<QuantityRow>
+    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 10000): List<QuantityRow>
 
     @Query("""
         UPDATE item_country

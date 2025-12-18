@@ -33,6 +33,8 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
     private var titleStr: String = ""
     private lateinit var rv: RecyclerView
     private var countryFilter: String? = null
+    private val country: String by lazy { requireArguments().getString("country").orEmpty() }
+    private val highlightItem: String by lazy { requireArguments().getString("highlightItem").orEmpty() }
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,7 +47,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         val sheetId = requireArguments().getLong("sheetId")
 
 
-        val toolbar = view.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
+        val toolbar = view.findViewById<MaterialToolbar>(R.id.toolbar)
         if (toolbar != null) {
             toolbar.title = titleStr
             toolbar.setOnMenuItemClickListener { item ->
@@ -92,7 +94,24 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                     val filtered = countryFilter?.let { c ->
                     allLines.filter { it.country == c }
                     } ?: allLines
+                    adapter.highlightItem = highlightItem.takeIf { it.isNotBlank() }
                     adapter.submit(filtered)
+
+                    rv.postDelayed({
+                        adapter.highlightItem = null
+                        adapter.notifyDataSetChanged()
+                    }, 2000)
+
+                    val target = highlightItem.takeIf { it.isNotBlank() }
+                    target?.let { t->
+                        val idx = filtered.indexOfFirst { it.item.equals(t, ignoreCase = true) }
+                        if (idx != -1) {
+                            rv.post {
+                                (rv.layoutManager as LinearLayoutManager)
+                                    .scrollToPositionWithOffset(idx, 0)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -211,7 +230,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         val onEdit: (SheetLineEntity) -> Unit,
         val onDelete: (SheetLineEntity) -> Unit
     ) : RecyclerView.Adapter<VH>() {
-
+        var highlightItem: String? = null
         private val data = mutableListOf<SheetLineEntity>()
         fun submit(list: List<SheetLineEntity>) { data.apply { clear(); addAll(list) }; notifyDataSetChanged() }
 
@@ -230,6 +249,9 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             h.sub.text = "필요:${ln.needed}  보유:${ln.have}  무게:${ln.weight}  가격:${ln.price}"
             h.btnEdit.setOnClickListener { onEdit(ln) }
             h.btnDelete.setOnClickListener { onDelete(ln) }
+
+            val isHighlight = highlightItem != null && ln.item.equals(highlightItem, true)
+            h.itemView.setBackgroundResource(if (isHighlight) R.drawable.bg_highlight else 0)
         }
     }
 

@@ -110,7 +110,7 @@ class SheetSearchFragment : Fragment(R.layout.fragment_sheet_search) {
             "sheetId" to row.sheetId,
             "title" to row.sheetTitle,
             "country" to row.country,
-            "item" to row.item
+            "highlightItem" to row.item
         )
         findNavController().navigate(R.id.sheetDetailFragment, args)
     }
