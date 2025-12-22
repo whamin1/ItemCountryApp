@@ -143,7 +143,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             .setTitle("삭제 확인")
             .setMessage("정말로 '${line.item}' 을(를) 삭제하시겠습니까?")
             .setPositiveButton("삭제") { _, _ ->
-                vm.deleteSheetLine(line)
+                vm.deleteSheetLineAndUnlinkIfOrphan(line)
                 Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("취소", null)

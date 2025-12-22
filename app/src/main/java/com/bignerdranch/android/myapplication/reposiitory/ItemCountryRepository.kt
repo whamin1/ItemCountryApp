@@ -1,7 +1,9 @@
 package com.bignerdranch.android.myapplication.repository
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
+import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.AdditionLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class ItemCountryRepository(
+    private val db: AppDatabase,
     private val dao: ItemCountryDao,
     private val sheetDao: ItemCountryDao.SheetDao,
     private val saveArchiveDao: ItemCountryDao.SaveArchiveDao
@@ -319,4 +322,24 @@ class ItemCountryRepository(
     fun searchSheetItems(q: String): Flow<List<ItemSearchRow>> {
         return dao.searchItems(q)
     }
+    suspend fun findOneItemRowForJump(item: String): ItemSearchRow? {
+        return dao.findOneSearchRowByItem(item)
+    }
+
+    suspend fun deleteSheetLineAndUnlink(line: SheetLineEntity) {
+        db.withTransaction {
+            // 1) 시트 라인 삭제
+            dao.deleteSheetLine(line)
+
+            // 2) 홈 링크 삭제(A)
+            val itemId = dao.getItemIdByName(line.item) ?: return@withTransaction
+            val countryId = dao.getCountryIdByName(line.country) ?: return@withTransaction
+            dao.deleteLink(itemId, countryId)
+        }
+    }
+
+    suspend fun deleteSheetLineAndUnlinkIfOrphan(line: SheetLineEntity) {
+        dao.deleteSheetLineAndUnlinkIfOrphan(line)
+    }
+
 }

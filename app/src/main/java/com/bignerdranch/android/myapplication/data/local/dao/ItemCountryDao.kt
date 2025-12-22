@@ -806,4 +806,46 @@ s.title AS sheetTitle,
         ORDER BY s.title, l.country, l.item
     """)
     fun searchItems(q: String): Flow<List<ItemSearchRow>>
+
+    @Query("""
+        SELECT s.id AS sheetId,
+        s.title AS sheetTitle,
+        l.country AS country,
+        l.item AS item,
+        l.price AS price,
+        l.weight AS weight
+        FROM sheet_lines AS l
+        JOIN sheets AS s ON l.sheetId = s.id
+        WHERE LOWER(l.item) = LOWER(:item)
+        ORDER BY s.id DESC
+        LIMIT 1
+    """)
+    suspend fun findOneSearchRowByItem(item: String): ItemSearchRow?
+
+    @Query("""
+        SELECT COUNT(*)
+        FROM sheet_lines
+        WHERE LOWER(item) = LOWER(:item)
+        AND LOWER(country) = LOWER(:country)
+    """)
+    suspend fun countSheetLinesByItemAndCountry(item: String, country: String): Int
+
+    @Transaction
+    suspend fun deleteSheetLineAndUnlinkIfOrphan(line: SheetLineEntity) {
+        // 1) sheet_lines 삭제
+        deleteSheetLineById(line.id)
+
+        // 2) 같은 (item,country)가 다른 시트에 남아있는지
+        val remain = countSheetLinesByItemAndCountry(line.item, line.country)
+
+        // 3) 없으면 홈 링크(item_country) 제거
+        if (remain == 0) {
+            val itemId = getItemIdByName(line.item) ?: return
+            val countryId = getCountryIdByName(line.country) ?: return
+            deleteLink(itemId, countryId)
+        }
+    }
+    @Query("DELETE FROM sheet_lines WHERE id = :id")
+    suspend fun deleteSheetLineById(id: Long)
+
 }

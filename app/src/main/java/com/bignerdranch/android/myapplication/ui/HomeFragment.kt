@@ -34,9 +34,13 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.text.TextWatcher
 import android.util.Log
 import androidx.appcompat.widget.Toolbar
+import androidx.core.os.bundleOf
+import androidx.core.view.isVisible
+import androidx.navigation.fragment.findNavController
 import androidx.room.util.query
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
+import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
@@ -74,13 +78,20 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private val itemDao by lazy { db.itemCountryDao() }
     private val archiveDao by lazy { db.saveArchiveDao() }
     private val offHaveMapFlow = MutableStateFlow<Map<Pair<String, String>, Int>>(emptyMap())
-
     private var lastSearchIndex: Int = -1
+    private lateinit var fabHistory: FloatingActionButton
+    private lateinit var fabSave: ExtendedFloatingActionButton
+    private lateinit var fabReset: FloatingActionButton
+    private lateinit var fabArchive: FloatingActionButton
 
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        fabHistory = view.findViewById(R.id.fabHistory)
+        fabSave = view.findViewById(R.id.fabSave)
+        fabArchive = view.findViewById(R.id.fabArchive)
+        fabReset = view.findViewById(R.id.fabReset)
 
         // 1) 뷰 찾기 (반드시 onViewCreated에서!)
         val toolbar = view.findViewById<Toolbar>(R.id.topAppBar)
@@ -90,10 +101,11 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         recyclerView = view.findViewById(R.id.recyclerView)
         indexBar = view.findViewById(R.id.indexBar)
 //        val fabAdd = view.findViewById<FloatingActionButton>(R.id.fabAdd)
-        val fabHistory = view.findViewById<FloatingActionButton>(R.id.fabHistory)
-        val fabSave = view.findViewById< ExtendedFloatingActionButton>(R.id.fabSave)
-        val fabArchive = view.findViewById<FloatingActionButton>(R.id.fabArchive)
-        val fabReset = view.findViewById<FloatingActionButton>(R.id.fabReset)
+//        val fabHistory = view.findViewById<FloatingActionButton>(R.id.fabHistory)
+//        val fabSave = view.findViewById< ExtendedFloatingActionButton>(R.id.fabSave)
+//        val fabArchive = view.findViewById<FloatingActionButton>(R.id.fabArchive)
+//        val fabReset = view.findViewById<FloatingActionButton>(R.id.fabReset)
+
 
         viewLifecycleOwner.lifecycleScope.launch {
             val dao = AppDatabase.get(requireActivity()).itemCountryDao()
@@ -112,10 +124,14 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 .itemCountryDao()
                 .backfillItemCountryWeightPriceFromSheets()
         }
+        switchCountMode.isChecked = isCountMode.value
+        switchCountMode.text = if (isCountMode.value) "저장" else "기록"
+        updateSaveModeUi()
 
         switchCountMode.setOnCheckedChangeListener { _, isChecked ->
             isCountMode.value = isChecked
             switchCountMode.text = if (isChecked) "저장" else "기록"
+            updateSaveModeUi()
             updateFabSaveLabel()
             adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
             // ✅ 즉시 표기 전환
@@ -175,7 +191,31 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
         // 2) 어댑터/리사이클러뷰 셋업 (클래스 프로퍼티 사용, 지역 변수 만들지 말 것!)
         adapter = EntryAdapter(
-            onItemLongClick = { head, list -> showDeleteDialog(head, list) },
+            onItemLongClick = { head, _ ->
+                if (isCountryMode.value) return@EntryAdapter
+
+                val item = head
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val row = vm.findOneItemRowForJump(item)
+
+                    if (row != null) {
+                        navigateToDetail(row)
+                        return@launch
+                    }
+
+                    // ✅ row == null 이면: 시트에도 없으니 "정리(삭제)" 제안
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("정리할까요?")
+                        .setMessage("이 아이템은 어떤 시트에도 없습니다.\n홈 목록에서 삭제하시겠습니까?\n\n$item")
+                        .setPositiveButton("삭제") { _, _ ->
+                            vm.deleteItem(item) // ✅ 아이템 전체 삭제 (links -> items)
+                            Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton("취소", null)
+                        .show()
+                }
+            }
+        ,
             onPickRows = { head, rows ->
                 if (!isCountMode.value) {
                     showOffDialog(head, rows)
@@ -874,6 +914,24 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         }
 
         dlg.show()
+    }
+
+    private fun navigateToDetail(row: ItemSearchRow) {
+        val args = bundleOf(
+            "sheetId" to row.sheetId,
+            "title" to row.sheetTitle,
+            "country" to row.country,
+            "highlightItem" to row.item
+        )
+        findNavController().navigate(R.id.sheetDetailFragment, args)
+    }
+    private fun updateSaveModeUi() {
+        val saveMode = isCountMode.value
+
+        fabHistory.isVisible = saveMode
+        fabSave.isVisible = saveMode
+        fabReset.isVisible = saveMode
+        fabArchive.isVisible = saveMode
     }
 
     private fun updateFabSaveLabel() {

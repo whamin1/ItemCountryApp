@@ -32,6 +32,14 @@ class SheetSearchFragment : Fragment(R.layout.fragment_sheet_search) {
         val rv = view.findViewById<RecyclerView>(R.id.rvSearch)
         val etSearch = view.findViewById<EditText>(R.id.etSearch)
 
+        val initialQuery = arguments?.getString("initialQuery").orEmpty()
+        if (initialQuery.isNotBlank()) {
+            etSearch.setText(initialQuery)
+            etSearch.setSelection(initialQuery.length)
+            vm.updateSearchQuery(initialQuery)
+        }
+
+
         adapter = SheetSearchAdapter { row ->
             navigateToDetail(row)
         }

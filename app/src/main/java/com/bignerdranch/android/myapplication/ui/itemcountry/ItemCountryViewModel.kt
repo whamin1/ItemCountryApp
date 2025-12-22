@@ -20,7 +20,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     val repository: ItemCountryRepository by lazy {
         val db = AppDatabase.get(app)
-        ItemCountryRepository(db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
+        ItemCountryRepository(db, db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
     }
     private var repo: ItemCountryRepository = repository
 
@@ -53,7 +53,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         val db = AppDatabase.get(app)
-        repo = ItemCountryRepository(db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
+        repo = ItemCountryRepository(db, db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
 
         uiStateItem = repo.observeAll().stateIn(
             scope = viewModelScope,
@@ -252,4 +252,16 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     fun updateSearchQuery(q: String) {
         _searchQuery.value = q
     }
+    suspend fun findOneItemRowForJump(item: String): ItemSearchRow? {
+        return repo.findOneItemRowForJump(item)
+    }
+
+    fun deleteSheetLineAndUnlink(line: SheetLineEntity) = viewModelScope.launch {
+        repo.deleteSheetLineAndUnlink(line)
+    }
+
+    fun deleteSheetLineAndUnlinkIfOrphan(line: SheetLineEntity) = viewModelScope.launch {
+        repo.deleteSheetLineAndUnlinkIfOrphan(line)
+    }
+
 }
