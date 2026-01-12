@@ -45,6 +45,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntit
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
+import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -189,30 +190,44 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             }
         }
 
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    highlightedHead = null
+                    adapter.highlightHead(null)
+                    clearHighlightJob?.cancel()
+                }
+            }
+        })
+
         // 2) 어댑터/리사이클러뷰 셋업 (클래스 프로퍼티 사용, 지역 변수 만들지 말 것!)
         adapter = EntryAdapter(
-            onItemLongClick = { head, _ ->
-                if (isCountryMode.value) return@EntryAdapter
+            onItemLongClick = { head, r ->
+                val countryMode = isCountryMode.value
+                val item = if (!countryMode) head else r.name
+                val country = if (!countryMode) r.name else head
 
-                val item = head
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val row = vm.findOneItemRowForJump(item)
+                    val row = vm.findOneItemRowForJump(item, country)
 
                     if (row != null) {
                         navigateToDetail(row)
-                        return@launch
+                    } else {
+                        Toast.makeText(requireContext(), "시트에서 못 찾음: $item / $country", Toast.LENGTH_SHORT).show()
+                        // ✅ row == null 이면: 시트에도 없으니 "정리(삭제)" 제안
+                        AlertDialog.Builder(requireContext())
+                            .setTitle("정리할까요?")
+                            .setMessage("이 아이템은 어떤 시트에도 없습니다.\n홈 목록에서 삭제하시겠습니까?\n\n$item")
+                            .setPositiveButton("삭제") { _, _ ->
+                                vm.deleteItem(item) // ✅ 아이템 전체 삭제 (links -> items)
+                                Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton("취소", null)
+                            .show()
+
                     }
 
-                    // ✅ row == null 이면: 시트에도 없으니 "정리(삭제)" 제안
-                    AlertDialog.Builder(requireContext())
-                        .setTitle("정리할까요?")
-                        .setMessage("이 아이템은 어떤 시트에도 없습니다.\n홈 목록에서 삭제하시겠습니까?\n\n$item")
-                        .setPositiveButton("삭제") { _, _ ->
-                            vm.deleteItem(item) // ✅ 아이템 전체 삭제 (links -> items)
-                            Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
-                        }
-                        .setNegativeButton("취소", null)
-                        .show()
+
                 }
             }
         ,
@@ -333,6 +348,21 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                         updateRecentUI(list)
                     }
                 }
+                launch {
+                    vm.pendingJumpItem.collect { item ->
+                        if (item.isNullOrBlank()) return@collect
+
+                        if (isCountryMode.value) {
+                            vm.consumeJumpRequest()
+                        }
+
+                        recyclerView.post {
+                            jumpToHeadExact(item)
+                            adapter.setHighlightQuery(item)
+                            vm.consumeJumpRequest()
+                        }
+                    }
+                }
             }
         }
 
@@ -378,8 +408,103 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             }
         }
 
+        val tvPred = view.findViewById<TextView>(R.id.tvPred)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(
+                    vm.predictions,
+                    isCountryMode
+                ) { preds, countryMode ->
+                    preds to countryMode
+                }.collect { (list, countryMode) ->
+                    if (countryMode) {
+                        tvPred.isVisible = false
+                    } else {
+                        tvPred.isVisible = true
+                        renderPredictions(tvPred, list)
+                    }
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            vm.refreshPredictions()
+        }
+
+        view.findViewById<View>(R.id.btnPredAll).setOnClickListener {
+            findNavController().navigate(R.id.predictionsFragment)
+        }
+
     }
 
+    private fun renderPredictions(
+        tv: TextView,
+        list: List<ItemCountryRepository.PredItem>
+    ) {
+        if (list.isEmpty()) {
+            tv.text = "예상 없음"
+            return
+        }
+
+        tv.movementMethod =
+            android.text.method.LinkMovementMethod.getInstance()
+
+        tv.linksClickable = true
+        tv.highlightColor = android.graphics.Color.TRANSPARENT
+
+        val ssb = android.text.SpannableStringBuilder()
+
+        list.forEach { p ->
+            val line = "• ${p.item} — ${p.label}\n"
+            val start = ssb.length
+            ssb.append(line)
+            val end = ssb.length
+
+            ssb.setSpan(
+                object : android.text.style.ClickableSpan() {
+                    override fun onClick(widget: View) {
+                        // ✅ 여기서 점프
+                        jumpToHeadExact(p.item)
+                        highlightHeadTemporarily(p.item)
+
+                        // ❗ 초기화는 다음 단계에서
+                    }
+                },
+                start,
+                end,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        tv.text = ssb
+    }
+
+    private var highlightedHead: String? = null
+    private var clearHighlightJob: kotlinx.coroutines.Job? = null
+
+    private fun highlightHeadTemporarily(head: String) {
+        highlightedHead = head
+        adapter.highlightHead(head)
+
+        clearHighlightJob?.cancel()
+        clearHighlightJob = viewLifecycleOwner.lifecycleScope.launch {
+            delay(2000)
+            // 그 사이 다른 걸 눌렀으면 덮어씌우지 않게 체크
+            if (highlightedHead == head) {
+                highlightedHead = null
+                adapter.highlightHead(null)
+            }
+        }
+    }
+
+
+    private fun jumpToHeadExact(head: String) {
+        val pos = adapter.findHeadPositionExact(head) ?: return
+        lastSearchIndex = pos
+        (recyclerView.layoutManager as? LinearLayoutManager)
+            ?.scrollToPositionWithOffset(pos, 0)
+    }
     // 🔍 첫 번째 매칭 위치로 점프
     private fun moveToFirstMatch(query: String?) {
         val q = query?.trim().orEmpty()
@@ -550,6 +675,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         // 현재 표시값 + 누적 delta → 임시 have 계산
         val key = item to country
 
+
         // 합계모드 OFF
         if (!isCountMode.value) {
             viewLifecycleOwner.lifecycleScope.launch {
@@ -558,6 +684,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
                 if (delta > 0) {
                     vm.addOffClick(itemId, countryId)      // 이미 있음
+                    vm.onOffPlusForPrediction(itemId)
                 } else if (delta < 0) {
                     vm.removeOffClick(itemId, countryId)   // 지금 만든 거
                 }

@@ -84,4 +84,9 @@
         android:name="com.bignerdranch.android.myapplication.ui.SheetSearchFragment"
         android:label="검색"
         tools:layout="@layout/fragment_sheet_search" />
+
+    <fragment
+        android:id="@+id/predictionsFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.PredictionsFragment"
+        android:label="Predictions" />
 </navigation>

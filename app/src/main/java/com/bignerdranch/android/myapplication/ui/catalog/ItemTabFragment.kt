@@ -46,7 +46,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        val toolbar: MaterialToolbar = view.findViewById(R.id.toolbar)
+        toolbar = view.findViewById(R.id.toolbar)
         val tb = toolbar!!
         tb.inflateMenu(R.menu.menu_item_tab)
 
@@ -98,7 +98,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         recycler.adapter = adapter
         // 최근 로그 불러오되, delta > 0 (버튼 + 로 증가한 것만) 필터
         viewLifecycleOwner.lifecycleScope.launch {
-            val rows = dao.getRecentPlusClicks(5000) // 필요하면 개수 조절
+            val rows = dao.getRecentPlusClicks(20000) // 필요하면 개수 조절
                 .filter { it.delta > 0 }             // ← 핵심: 플러스만 보기
             allRows = rows
             applyFilter()
@@ -196,33 +196,31 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         val start = selectedStartMillis
         val end = selectedEndMillis
 
-        val base = if (start != null && end != null) {
+        // 1) 날짜 필터
+        val dateFiltered = if (start != null && end != null) {
             allRows.filter { it.timestamp in start..end }
         } else {
             allRows
         }
 
-        currentRows = base
-
+        // 2) 검색 필터
         val q = searchQuery.trim()
         val finalList = if (q.isNotEmpty()) {
-            base.filter { row ->
-                row.item.contains(q, ignoreCase = true || row.country.contains(q, ignoreCase = true))
+            dateFiltered.filter { row ->
+                row.item.contains(q, ignoreCase = true) ||
+                        row.country.contains(q, ignoreCase = true)
             }
         } else {
-            base
+            dateFiltered
         }
 
+        // 3) export용 현재 목록도 동일하게 저장
+        currentRows = finalList
+
+        // 4) 화면 갱신 (한 번만)
         adapter.submit(finalList)
+
         updateToolbarSubtitle()
-
-        val listToShow = if (start != null && end != null) {
-            allRows.filter { it.timestamp in start..end }
-        } else {
-            allRows
-        }
-
-        adapter.submit(listToShow)
     }
 
     // ✅ 날짜 선택 다이얼로그

@@ -24,7 +24,7 @@ data class Row(val name: String, val needed: Int, val have: Int)
  * - 클릭 시 MainActivity로 (head, rows) 통째로 전달 → 거기서 단건/다건 처리
  */
 class EntryAdapter(
-    private val onItemLongClick: (head: String, list: List<String>) -> Unit,
+    private val onItemLongClick: (head: String, row: Row) -> Unit,
     private val onPickRows: (head: String, rows: List<Row>) -> Unit,
     private val onDelta: (head: String, row: Row, delta: Int) -> Unit   // 👈 추가: -/+ 클릭 이벤트
 
@@ -70,7 +70,9 @@ class EntryAdapter(
     private val sectionFirstPos = mutableMapOf<String, Int>()       // 섹션 첫 위치(빠른 점프용)
 
     // 검색어 저장(하이라이트 용)
-    private var currentQuery: String = ""
+    // 기존 currentQuery 삭제(or 안 씀)
+    private var highlightQuery: String = ""
+    private var filterQuery: String = ""
 
     // ----- 타입/데이터 모델 -----
     companion object {
@@ -100,7 +102,7 @@ class EntryAdapter(
         full = map.entries.map { e ->
             e.key to e.value.map { cq -> Row(cq.name, cq.needed, cq.have) }
         }
-        rebuildSections(full, currentQuery)
+        rebuildSections(full, filterQuery)
     }
 
     fun findMatchPosition(query: String, fromIndex: Int = 0): Int? {
@@ -120,16 +122,23 @@ class EntryAdapter(
         }
         return null
     }
+    private var highlightedHead: String? = null
 
+
+
+    fun highlightHead(head: String?) {
+        highlightedHead = head?.trim()
+        notifyDataSetChanged()
+    }
     fun setHighlightQuery(query: String?) {
-        currentQuery = query?.trim().orEmpty()
+        highlightQuery = query?.trim().orEmpty()
         notifyDataSetChanged()
     }
 
     // ----- 필터링 + 섹션 재구성 -----
     fun filter(query: String) {
-        currentQuery = query
-        rebuildSections(full, query)
+        highlightQuery = query
+        rebuildSections(full, filterQuery)
     }
 
     private fun rebuildSections(
@@ -207,7 +216,7 @@ class EntryAdapter(
             is HeaderVH -> holder.bind((items[position] as HeaderRow).title)
             is GroupVH  -> {
                 val g = items[position] as GroupRow
-                holder.bind(g.head, g.rows, currentQuery)
+                holder.bind(g.head, g.rows, filterQuery)
             }
         }
     }
@@ -235,7 +244,7 @@ class EntryAdapter(
 
     private inner class GroupVH(
         v: View,
-        private val onItemLongClick: (head: String, list: List<String>) -> Unit,
+        private val onItemLongClick: (head: String, row: Row) -> Unit,
         private val onPickRows: (head: String, rows: List<Row>) -> Unit
     ) : EntryViewHolder(v) {
 
@@ -244,7 +253,18 @@ class EntryAdapter(
         private val tvHead: TextView = v.findViewById(R.id.tvHead)
 
         fun bind(head: String, rows: List<Row>, q: String) {
-            tvHead.text = highlight(head, q)
+            val isHighlighted  = highlightedHead?.equals(head, ignoreCase = true) == true
+
+            tvHead.text = if (isHighlighted) {
+                SpannableString(head).apply {
+                    setSpan(StyleSpan(Typeface.BOLD), 0, head.length, 0)
+                    setSpan(ForegroundColorSpan(0xFFFF9800.toInt()), 0, head.length, 0)
+                }
+            } else {
+                highlight(head, q) // 기존 검색 하이라이트
+            }
+
+
             chipGroup.removeAllViews()
             rows.forEach { r ->
                 val layoutRes = if (tempIsCountryMode) {
@@ -292,13 +312,26 @@ class EntryAdapter(
                 }
 
                 chipView.setOnLongClickListener {
-                    onItemLongClick(head, listOf(r.name))
+                    onItemLongClick(head, r)
                     true
                 }
 
                 chipGroup.addView(chipView)
             }
         }
+    }
+
+    fun findHeadPositionExact(head: String): Int? {
+        val target = head.trim()
+        if (target.isEmpty()) return null
+
+        for (i in items.indices) {
+            val e = items[i]
+            if (e is GroupRow && e.head.equals(target, ignoreCase = true)) {
+                return i
+            }
+        }
+        return null
     }
 
     private fun updateDots(tvDots: TextView, have: Int, needed: Int) {

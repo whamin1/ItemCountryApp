@@ -19,6 +19,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
+import com.bignerdranch.android.myapplication.data.local.entity.PredictionAckEntity
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
@@ -160,7 +161,7 @@ ORDER BY i.name, c.name
     ORDER BY timestamp DESC
     LIMIT :limit
 """)
-    suspend fun getQuantityLogs(itemId: Long, countryId: Long, limit: Int = 5000): List<QuantityLogEntity>
+    suspend fun getQuantityLogs(itemId: Long, countryId: Long, limit: Int = 20000): List<QuantityLogEntity>
 
     data class AdditionRow(
         val id: Long = 0L,
@@ -190,7 +191,7 @@ ORDER BY i.name, c.name
     LIMIT :limit
 """)
 
-    suspend fun getRecentAdditions(limit: Int = 10000): List<AdditionRow>
+    suspend fun getRecentAdditions(limit: Int = 20000): List<AdditionRow>
 
     data class QuantityRow(
         val id: Long = 0L,
@@ -235,7 +236,7 @@ ORDER BY i.name, c.name
     ORDER BY q.timestamp DESC
     LIMIT :limit
 """)
-    suspend fun getRecentQuantityLogs(limit: Int = 200): List<QuantityRow>
+    suspend fun getRecentQuantityLogs(limit: Int = 20000): List<QuantityRow>
 
     @Query("""
     SELECT q.id AS id,
@@ -252,7 +253,7 @@ ORDER BY i.name, c.name
     ORDER BY q.timestamp DESC
     LIMIT :limit
 """)
-    suspend fun getHistoryRowsNoDelta(limit: Int = 200): List<HistoryRow>
+    suspend fun getHistoryRowsNoDelta(limit: Int = 20000): List<HistoryRow>
 
     // 아이템 탭: [+ 클릭]만 보기 (delta > 0, batchId = 0 또는 NULL)
     @Query("""
@@ -288,7 +289,7 @@ WHERE q.delta > 0
 ORDER BY q.timestamp DESC
 LIMIT :limit
 """)
-    suspend fun getRecentPlusClicks(limit: Int = 10000): List<QuantityRow>
+    suspend fun getRecentPlusClicks(limit: Int = 20000): List<QuantityRow>
 
     @Query("DELETE FROM quantity_log WHERE id = :id")
     suspend fun deleteQuantityLogById(id: Long)
@@ -367,7 +368,7 @@ WHERE c.name = :country
 ORDER BY q.timestamp DESC
 LIMIT :limit
 """)
-    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 10000): List<QuantityRow>
+    suspend fun getQuantityLogsByCountry(country: String, limit: Int = 20000): List<QuantityRow>
 
     @Query("""
         UPDATE item_country
@@ -378,6 +379,8 @@ LIMIT :limit
     @Query("SELECT name FROM items ORDER BY name")
     suspend fun getAllItemsNames(): List<String>
 
+    @Query("SELECT name FROM items WHERE id = :itemId LIMIT 1")
+    suspend fun getItemNameById(itemId: Long): String?
 
     // 아카이브에 저장된 내역을 기준으로 "최근 since(ms) 이후 나간 수량" 집계.
 // items에 없는 이름도 있을 수 있어서, items 테이블을 기준으로 왼쪽 조인해 0을 채움.
@@ -816,11 +819,11 @@ s.title AS sheetTitle,
         l.weight AS weight
         FROM sheet_lines AS l
         JOIN sheets AS s ON l.sheetId = s.id
-        WHERE LOWER(l.item) = LOWER(:item)
+        WHERE LOWER(l.item) = LOWER(:item) AND LOWER(l.country) = LOWER(:country)
         ORDER BY s.id DESC
         LIMIT 1
     """)
-    suspend fun findOneSearchRowByItem(item: String): ItemSearchRow?
+    suspend fun findOneSearchRowByItem(item: String, country: String): ItemSearchRow?
 
     @Query("""
         SELECT COUNT(*)
@@ -847,5 +850,79 @@ s.title AS sheetTitle,
     }
     @Query("DELETE FROM sheet_lines WHERE id = :id")
     suspend fun deleteSheetLineById(id: Long)
+
+    @Query("""
+        SELECT itemId, countryId, timestamp
+        FROM quantity_log
+        WHERE delta > 0
+        AND COALESCE(batchId, 0) = 0
+        AND COALESCE(archived, 0) = 0
+        ORDER BY timestamp DESC
+        LIMIT :limit
+    """)
+    suspend fun getRecentPlusLogLite(limit: Int = 20000): List<PlusLiteRow>
+
+    data class PlusLiteRow(
+        val itemId: Long,
+        val countryId: Long,
+        val timestamp: Long
+    )
+
+    data class NamePairRow(
+        val itemId: Long,
+        val countryId: Long,
+        val item: String,
+        val country: String
+    )
+
+    @Query("""
+        SELECT ic.itemId AS itemId,
+        ic.countryId AS countryId,
+        i.name AS item,
+        c.name AS country
+        FROM item_country ic
+        JOIN items i ON i.id = ic.itemId
+        JOIN countries c ON c.id = ic.countryId
+    """)
+    suspend fun getAllNamePairs(): List<NamePairRow>
+
+    data class PlusLiteIdRow(
+        val itemId: Long,
+        val countryId: Long,
+        val timestamp: Long
+    )
+
+    @Query("""
+SELECT itemId, countryId, timestamp
+FROM quantity_log
+WHERE delta > 0
+  AND COALESCE(batchId, 0) = 0
+  AND COALESCE(archived, 0) = 0
+ORDER BY timestamp DESC
+LIMIT :limit
+""")
+    suspend fun getRecentPlusLogLiteIds(limit: Int = 20000): List<PlusLiteIdRow>
+
+    data class ItemLite(val id: Long, val name: String)
+
+    @Query("SELECT id, name FROM items")
+    suspend fun getAllItemsLite(): List<ItemLite>
+
+    @Query("SELECT name FROM countries WHERE id = :countryId LIMIT 1")
+    suspend fun getCountryNameById(countryId: Long): String?
+
+
+    @Query("SELECT ackAt FROM prediction_ack WHERE itemId = :itemId LIMIT 1")
+    suspend fun getAckAt(itemId: Long): Long?
+
+    @Upsert
+    suspend fun upsertAck(e: PredictionAckEntity)
+
+    data class CountryLite(val id: Long, val name: String)
+
+    @Query("SELECT id, name FROM countries")
+    suspend fun getAllCountriesLite(): List<CountryLite>
+
+
 
 }

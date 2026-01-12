@@ -1,6 +1,7 @@
 package com.bignerdranch.android.myapplication.ui.itemcountry
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
@@ -20,7 +21,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     val repository: ItemCountryRepository by lazy {
         val db = AppDatabase.get(app)
-        ItemCountryRepository(db, db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
+        ItemCountryRepository(app.applicationContext, db, db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
     }
     private var repo: ItemCountryRepository = repository
 
@@ -53,7 +54,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         val db = AppDatabase.get(app)
-        repo = ItemCountryRepository(db, db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
+        repo = ItemCountryRepository(app.applicationContext, db, db.itemCountryDao(), db.sheetDao(), db.saveArchiveDao())
 
         uiStateItem = repo.observeAll().stateIn(
             scope = viewModelScope,
@@ -252,8 +253,8 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     fun updateSearchQuery(q: String) {
         _searchQuery.value = q
     }
-    suspend fun findOneItemRowForJump(item: String): ItemSearchRow? {
-        return repo.findOneItemRowForJump(item)
+    suspend fun findOneItemRowForJump(item: String, country: String): ItemSearchRow? {
+        return repo.findOneItemRowForJump(item, country)
     }
 
     fun deleteSheetLineAndUnlink(line: SheetLineEntity) = viewModelScope.launch {
@@ -262,6 +263,52 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteSheetLineAndUnlinkIfOrphan(line: SheetLineEntity) = viewModelScope.launch {
         repo.deleteSheetLineAndUnlinkIfOrphan(line)
+    }
+
+    // ItemCountryViewModel
+
+    private val _predictions = MutableStateFlow<List<ItemCountryRepository.PredItem>>(emptyList())
+    val predictions: StateFlow<List<ItemCountryRepository.PredItem>> = _predictions
+
+    private val _pendingJumpItem = MutableStateFlow<String?>(null)
+    val pendingJumpItem: StateFlow<String?> = _pendingJumpItem
+
+    fun requestJumpToItem(item: String) {
+        _pendingJumpItem.value = item
+    }
+    fun consumeJumpRequest() {
+        _pendingJumpItem.value = null
+    }
+
+    private var predJob: kotlinx.coroutines.Job? = null
+    private val _predLoading = MutableStateFlow(false)
+    val predLoading: StateFlow<Boolean> = _predLoading
+
+    fun refreshPredictions() {
+        predJob?.cancel()
+        predJob = viewModelScope.launch {
+            _predLoading.value = true
+            val preds = withContext(Dispatchers.Default) {
+                repo.buildPredictions(limit = 20000)
+            }
+            _predictions.value = preds.take(5)
+            _predLoading.value = false
+        }
+    }
+
+    fun onOffPlusForPrediction(itemId: Long) {
+        refreshPredictions()
+    }
+
+    suspend fun buildPredictionsAll(limit: Int = 20000): List<ItemCountryRepository.PredItem> {
+        return withContext(Dispatchers.Default) {
+            repo.buildPredictions(
+                limit = limit,
+                minIntervalMs = 2 * 60_000,
+                snapBusiness = false,
+                allowOverdue = true,
+            )
+        }
     }
 
 }

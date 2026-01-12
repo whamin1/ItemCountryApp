@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.repository
 
+import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
@@ -9,6 +10,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
+import com.bignerdranch.android.myapplication.data.local.entity.PredictionAckEntity
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
@@ -16,8 +18,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.Calendar
+import kotlin.math.abs
 
 class ItemCountryRepository(
+    private val appContext: Context,
     private val db: AppDatabase,
     private val dao: ItemCountryDao,
     private val sheetDao: ItemCountryDao.SheetDao,
@@ -162,7 +170,7 @@ class ItemCountryRepository(
     }
 
     // ⓑ 나라 목록(이름) Flow - 탭 만들 때 사용
-    fun getAllCountryNames(): kotlinx.coroutines.flow.Flow<List<String>> =
+    fun getAllCountryNames(): Flow<List<String>> =
         dao.getAllCountryNames()
 
     suspend fun getHaveNow(itemId: Long, countryId: Long): Int {
@@ -322,8 +330,8 @@ class ItemCountryRepository(
     fun searchSheetItems(q: String): Flow<List<ItemSearchRow>> {
         return dao.searchItems(q)
     }
-    suspend fun findOneItemRowForJump(item: String): ItemSearchRow? {
-        return dao.findOneSearchRowByItem(item)
+    suspend fun findOneItemRowForJump(item: String, country: String): ItemSearchRow? {
+        return dao.findOneSearchRowByItem(item, country)
     }
 
     suspend fun deleteSheetLineAndUnlink(line: SheetLineEntity) {
@@ -340,6 +348,400 @@ class ItemCountryRepository(
 
     suspend fun deleteSheetLineAndUnlinkIfOrphan(line: SheetLineEntity) {
         dao.deleteSheetLineAndUnlinkIfOrphan(line)
+    }
+
+
+    data class PredItem(
+        val itemId: Long,
+        val item: String,
+        val predictedAt: Long,
+        val label: String,
+        val score: Double,
+        val avgIntervalMs: Long,
+        val topCountries: List<String>
+    )
+
+    data class ItemAvgGap(
+        val itemId: Long,
+        val avgGapMs: Long,
+        val sampleCount: Int
+    )
+
+
+    private val KST = ZoneId.of("Asia/Seoul")
+
+    private fun toKstDate(ts: Long): LocalDate =
+        Instant.ofEpochMilli(ts).atZone(KST).toLocalDate()
+
+    private fun countGlobalMissingDaysBetween(
+        d1: Long,
+        d2: Long,
+        activeDays: Set<Long>
+    ): Long {
+        var missing = 0L
+        var day = d1 + 1
+        while (day < d2) {
+            if (!activeDays.contains(day)) missing++
+            day++
+        }
+        return missing
+    }
+
+    //중앙값 함수
+    private fun median(list: List<Long>): Long {
+        if (list.isEmpty()) return 0L
+        val s = list.sorted()
+        val m = s.size / 2
+        return if (s.size % 2 == 1) s[m] else (s[m - 1] + s[m]) / 2
+    }
+
+
+    suspend fun buildPredictions(
+        limit: Int = 20000,
+        minIntervalMs: Long = 10 * 60_000,   // 너무 촘촘한 간격 컷(10분)
+        snapBusiness: Boolean = false,       // ⚠️ 기본은 false 추천(왜곡/중복 줄임)
+        allowOverdue: Boolean = false,       // 이미 지난 예측은 제외
+        take: Int = 100000,                     // 전체 결과 상한(UI 안전)
+        perItemMax: Int = 10,                // ✅ 아이템당 최대 10개
+        horizonDays: Int = 365               // ✅ 상한 없이 가려면 크게(예: 365일)
+    ): List<PredItem> {
+
+
+
+        val logs = dao.getRecentPlusLogLiteIds(limit)
+        val now = System.currentTimeMillis()
+
+        val itemNameMap = dao.getAllItemsLite().associate { it.id to it.name }
+        val groups = logs.groupBy { it.itemId }
+
+        //아이템 이름
+        suspend fun resolveItemName(itemId: Long): String? {
+            return itemNameMap[itemId] ?: dao.getItemNameById(itemId)
+        }
+
+        val results = mutableListOf<PredItem>()
+
+        val horizonMs = horizonDays * 24L * 60L * 60L * 1000L
+        val end = now + horizonMs
+
+        val DAY_MS = 86_400_000L
+        val KST_OFFSET = 9 * 60 * 60 * 1000L
+        val MIN_MS = 60_000L
+        fun dayIndexKst(ts: Long) = (ts + KST_OFFSET) / DAY_MS
+        fun minuteOfDayKst(ts: Long) = ((ts + KST_OFFSET) % DAY_MS) / MIN_MS  // 0~1439
+
+        val lastMinuteByDay: Map<Long, Long> =
+            logs.groupBy { dayIndexKst(it.timestamp) }
+                .mapValues { (_, dayLogs) -> dayLogs.maxOf { minuteOfDayKst(it.timestamp) } }
+
+        val END = 16 * 60L
+        val EARLY = 15 * 60L
+
+
+
+        fun earlyLeaveTailMs(day: Long): Long {
+            val lastMin = lastMinuteByDay[day] ?: return 0L // 그날 로그가 없으면 여기선 0 (빈날 로직에서 처리)
+            return if (lastMin < EARLY) (END - lastMin) * MIN_MS else 0L
+        }
+
+        fun sumEarlyLeaveTailBetween(prevTs: Long, currTs: Long, activeDays: Set<Long>): Long {
+            val prevDay = dayIndexKst(prevTs)
+            val currDay = dayIndexKst(currTs)
+            if (prevDay >= currDay) return 0L
+
+            var sum = 0L
+
+            // prevDay tail
+            if (activeDays.contains(prevDay)) sum += earlyLeaveTailMs(prevDay)
+
+            // middle days tail (로그 있는 날만)
+            var d = prevDay + 1
+            while (d < currDay) {
+                if (activeDays.contains(d)) {
+                    sum += earlyLeaveTailMs(d)
+                }
+                d++
+            }
+
+            // currDay tail은 빼지 않음
+            return sum
+        }
+
+
+        fun scoreFor(predicted: Long): Double {
+            // 가까울수록 점수 높게 (2시간 스케일)
+            return 1.0 / (1.0 + (predicted - now).toDouble() / (2 * 60 * 60 * 1000))
+        }
+
+
+
+
+
+
+        // 디버그 카운터
+
+        var cutTs = 0
+        var cutAllOverdue = 0
+        var keptItems = 0
+
+
+////////////////////////////////////////////////////////
+        val activeDayIndexes: Set<Long> = logs
+            .map { it.timestamp / DAY_MS }
+            .toSet()
+
+
+        val HOUR_MS = 3_600_000L
+
+// ✅ 전체 아이템용: 루프 밖에서 1번만
+        val workGapsByItem = mutableMapOf<Long, MutableList<Long>>()
+
+        for ((itemId, itemLogs) in groups) {
+
+            if (itemLogs.size < 2) continue
+            val sortedLogs = itemLogs.sortedBy { it.timestamp }
+
+            for (i in 1 until sortedLogs.size) {
+
+                val prevTs = sortedLogs[i - 1].timestamp
+                val currTs = sortedLogs[i].timestamp
+                val rawGap = currTs - prevTs
+
+                val prevDay = dayIndexKst(prevTs)
+                val currDay = dayIndexKst(currTs)
+
+                val missingDays = countGlobalMissingDaysBetween(prevDay, currDay, activeDayIndexes)
+                val dayDiff = (currDay - prevDay).coerceAtLeast(0L)
+
+                val baseNonWork = dayDiff * (17 * HOUR_MS)
+                val missingExtra = missingDays * (7 * HOUR_MS)
+
+                // ✅ 조기퇴근은 "두 로그 사이 합"을 쓰는 게 맞음
+                val earlyExtra = sumEarlyLeaveTailBetween(prevTs, currTs, activeDayIndexes)
+
+                val workGap = rawGap - baseNonWork - missingExtra - earlyExtra
+                val workGapSafe = maxOf(0L, workGap)
+
+                workGapsByItem.getOrPut(itemId) { mutableListOf() }.add(workGapSafe)
+
+            }
+        }
+
+// ✅ 여기서부터 '아이템당 1번' 평균 출력
+        workGapsByItem.forEach { (itemId, gaps) ->
+            if (gaps.isEmpty()) return@forEach
+            val avgMs = gaps.average().toLong()
+
+        }
+
+        fun formatPredictionTimeStep1(
+            predictedAt: Long,
+            now: Long = System.currentTimeMillis()
+        ): String {
+
+            val diffMs = predictedAt - now
+
+            // 1) 이미 지난 경우
+            if (diffMs <= 0) {
+                return "지남"
+            }
+
+            val diffMin = diffMs / MIN_MS
+            val diffHour = diffMs / HOUR_MS
+
+            return when {
+                diffMin < 1 -> "곧"
+                diffMin < 60 -> "${diffMin}분 후"
+                diffHour < 24 -> "${diffHour}시간 후"
+                else -> "${diffHour / 24}일 후"
+            }
+        }
+
+        val avgList = workGapsByItem.mapNotNull { (itemId, gaps) ->
+            if (gaps.isEmpty()) return@mapNotNull null
+
+            val avgMs = gaps.average().toLong()
+            ItemAvgGap(
+                itemId = itemId,
+                avgGapMs = avgMs,
+                sampleCount = gaps.size
+            )
+        }
+
+
+//////////////////////////////////////////////////////////////////
+
+        val avgGapByItem = avgList.associateBy { it.itemId }  // itemId -> ItemAvgGap
+
+        //////////////////////////////////
+
+        for ((itemId, rows) in groups) {
+            val gaps = workGapsByItem[itemId] ?: continue
+            val recent = gaps.takeLast(15)               // ✅ 최근 15개만(10~30 적당)
+            val interval = median(recent)                // ✅ 평균 대신 중앙값
+            if (interval <= 0L) continue
+            val name = itemNameMap[itemId] ?: continue
+            val ackAt = dao.getAckAt(itemId) ?: 0L
+
+            val tsAll = rows.map { it.timestamp }.distinct().sorted()
+            if (tsAll.size < 2) { cutTs++; continue }
+
+            val base = tsAll.last()
+
+            var anyFuture = false
+            var count = 0
+            var k = 1L
+            Log.d("PRED_MED", "item=$itemId name=$name samples=${recent.size} medianH=${interval/HOUR_MS} gapsH=${recent.map{it/HOUR_MS}}")
+
+            while (count < perItemMax) {
+                val predicted = addBusinessTime(base, interval * k)
+
+                if (predicted > end) break
+                if (predicted <= ackAt) { k++; continue }
+                if (!allowOverdue && predicted <= now) { k++; continue }
+
+                anyFuture = true
+
+                results += PredItem(
+                    itemId = itemId,
+                    item = name,
+                    predictedAt = predicted,
+                    label = formatPredictionTimeStep1(predicted, now),
+                    score = scoreFor(predicted),
+                    avgIntervalMs = interval,
+                    topCountries = emptyList()
+                )
+
+                count++
+                k++
+            }
+
+            if (!anyFuture) cutAllOverdue++ else keptItems++
+        }
+
+
+        val onePerItem = results
+            .filter { it.predictedAt > now }
+            .groupBy { it.itemId }
+            .mapNotNull { (_, list) -> list.minByOrNull { it.predictedAt } }
+
+        return onePerItem
+            .sortedBy { it.predictedAt }
+            .take(take)
+
+    }
+
+    /////////
+
+    private val LUNCH_START_MIN = 12 * 60 // 12:00
+    private val LUNCH_END_MIN   = 13 * 60 // 13:00
+    private val MIN_MS = 60_000L
+    private val HOUR_MS = 3_600_000L
+    private val DAY_MS = 86_400_000L
+
+    private val WORK_START_MIN = 9 * 60    // 09:00
+    private val WORK_END_MIN = 16 * 60     // 16:00
+    private val WORK_DAY_MIN = WORK_END_MIN - WORK_START_MIN // 420분 = 7h
+    private val WORK_DAY_MS = WORK_DAY_MIN * MIN_MS
+
+    private val KST_OFFSET_MS = 9 * HOUR_MS
+
+    private fun dayIndexKst(ts: Long): Long = (ts + KST_OFFSET_MS) / DAY_MS
+    private fun minuteOfDayKst(ts: Long): Long = ((ts + KST_OFFSET_MS) % DAY_MS) / MIN_MS
+
+    private fun kstTsOf(dayIndex: Long, minuteOfDay: Long): Long {
+        // dayIndex, minuteOfDay는 KST 기준
+        return dayIndex * DAY_MS + minuteOfDay * MIN_MS - KST_OFFSET_MS
+    }
+
+    private fun snapToWorkStartIfNeeded(ts: Long): Long {
+        var day = dayIndexKst(ts)
+        val min = minuteOfDayKst(ts)
+
+        // 주말에 들어오면 -> 월요일로 스킵
+        day = nextWorkDay(day)
+
+        return when {
+            min < WORK_START_MIN -> kstTsOf(day, WORK_START_MIN.toLong())
+            min in LUNCH_START_MIN until LUNCH_END_MIN -> kstTsOf(day, LUNCH_END_MIN.toLong())
+            min >= WORK_END_MIN  -> {
+                val next = nextWorkDay(day + 1)
+                kstTsOf(next, WORK_START_MIN.toLong())
+            }
+            else -> {
+                // 평일 근무시간 안이면 그대로, (혹시 주말 근무시간 안이더라도 위에서 nextWorkDay로 걸러짐)
+                ts
+            }
+        }
+    }
+
+    /**
+     * startTs에서 시작해서 "근무시간만" workMs 만큼 흘렸을 때의 timestamp를 반환
+     */
+    private fun addBusinessTime(startTs: Long, workMs: Long): Long {
+        if (workMs <= 0L) return startTs
+
+        var ts = snapToWorkStartIfNeeded(startTs)
+        var remaining = workMs
+
+        while (remaining > 0L) {
+            val day = dayIndexKst(ts)
+            val min = minuteOfDayKst(ts)
+
+            // ✅ 점심시간이면 13:00으로 점프
+            if (min in LUNCH_START_MIN until LUNCH_END_MIN) {
+                ts = kstTsOf(day, LUNCH_END_MIN.toLong())
+                continue
+            }
+
+            // ✅ 현재 구간 끝(오전이면 12:00, 오후면 16:00)
+            val segmentEndMin = when {
+                min < LUNCH_START_MIN -> LUNCH_START_MIN
+                else -> WORK_END_MIN
+            }
+
+            val leftThisSegmentMs = (segmentEndMin - min).coerceAtLeast(0) * MIN_MS
+
+            if (remaining <= leftThisSegmentMs) {
+                return ts + remaining
+            }
+
+            remaining -= leftThisSegmentMs
+
+            // ✅ 구간 끝에 도달했으면 다음 위치로 이동
+            ts = when (segmentEndMin) {
+                LUNCH_START_MIN -> kstTsOf(day, LUNCH_END_MIN.toLong()) // 12:00 -> 13:00
+                else -> { // 16:00 -> 다음 근무일 09:00
+                    val next = nextWorkDay(day + 1)
+                    kstTsOf(next, WORK_START_MIN.toLong())
+                }
+            }
+        }
+
+        return ts
+    }
+
+
+
+    private fun isWeekendDayIndex(dayIndex: Long): Boolean {
+        val ts = kstTsOf(dayIndex, WORK_START_MIN.toLong()) // 그날 09:00(KST)
+        val cal = Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Seoul")).apply {
+            timeInMillis = ts
+        }
+        val dow = cal.get(Calendar.DAY_OF_WEEK)
+        return dow == Calendar.SATURDAY || dow == Calendar.SUNDAY
+    }
+
+    private fun nextWorkDay(dayIndex: Long): Long {
+        var d = dayIndex
+        while (isWeekendDayIndex(d)) d++
+        return d
+    }
+
+    ////////
+
+    suspend fun ackPrediction(itemId: Long) {
+        dao.upsertAck(PredictionAckEntity(itemId, System.currentTimeMillis()))
     }
 
 }
