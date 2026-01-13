@@ -350,7 +350,69 @@ class ItemCountryRepository(
         dao.deleteSheetLineAndUnlinkIfOrphan(line)
     }
 
+    suspend fun updateSheetLineAndApplyHome(old: SheetLineEntity, new: SheetLineEntity) {
+        db.withTransaction {
+            // 1) 시트 라인 업데이트
+            dao.updateSheetLine(new)
 
+            // 2) new item/country upsert + id 확보
+            dao.upsertItems(listOf(ItemEntity(name = new.item)))
+            dao.upsertCountries(listOf(CountryEntity(name = new.country)))
+
+            val newItemId = dao.getItemIdByName(new.item) ?: return@withTransaction
+            val newCountryId = dao.getCountryIdByName(new.country) ?: return@withTransaction
+
+            // 3) 홈 링크 보장
+            dao.insertCrossRefs(listOf(ItemCountryCrossRef(newItemId, newCountryId)))
+
+            // 4) 홈 수량/무게/가격 즉시 반영
+            dao.updateQuantity(newItemId, newCountryId, new.needed, new.have)
+            dao.updateWeightAndPrice(new.item, new.country, new.weight, new.price.toFloat())
+
+            // ---------------------------
+            // ✅ 여기부터 "이사(마이그레이션)"
+            // ---------------------------
+            val keyChanged = old.item != new.item || old.country != new.country
+            if (keyChanged) {
+                val oldItemId = dao.getItemIdByName(old.item)
+                val oldCountryId = dao.getCountryIdByName(old.country)
+
+                if (oldItemId != null && oldCountryId != null) {
+                    // 5) 로그/ACK 이사
+                    dao.migrateQuantityLogs(oldItemId, oldCountryId, newItemId, newCountryId)
+                    dao.migrateAdditionLogs(oldItemId, oldCountryId, newItemId, newCountryId)
+                    dao.migratePredictionAcks(oldItemId, newItemId)
+
+                    // 6) OFF 값/최근 클릭시간도 이사 (네 dao에 이미 함수들 있음)
+                    val oldAck = dao.getPredictionAck(oldItemId)
+                    if (oldAck != null) {
+                        val newAck = dao.getPredictionAck(newItemId)
+                        val mergedAckAt = maxOf(oldAck.ackAt, newAck?.ackAt ?: 0L)
+                        dao.upsertPredictionAck(PredictionAckEntity(itemId = newItemId, ackAt = mergedAckAt))
+                        dao.deletePredictionAck(oldItemId)
+                    }
+
+                    val oldLast = dao.getLastClickedAt(oldItemId, oldCountryId)
+                    if (oldLast != null) {
+                        // new 쪽 lastClickedAt이 더 최신이면 그걸 유지하는 게 안전
+                        val newLast = dao.getLastClickedAt(newItemId, newCountryId)
+                        val keep = maxOf(oldLast, newLast ?: 0L)
+                        dao.updateLastClickedAt(newItemId, newCountryId, keep)
+                    }
+
+                    // 7) old(item,country)가 시트라인에 더 이상 없으면 링크 제거
+                    val left = dao.countSheetLinesByItemCountry(old.item, old.country)
+                    if (left == 0) {
+                        dao.deleteLink(oldItemId, oldCountryId)
+                    }
+                }
+            }
+        }
+    }
+
+
+    //예측 함수
+////////////////////////////////////////////////////
     data class PredItem(
         val itemId: Long,
         val item: String,

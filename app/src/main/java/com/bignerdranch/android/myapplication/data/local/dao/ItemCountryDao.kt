@@ -923,6 +923,70 @@ LIMIT :limit
     @Query("SELECT id, name FROM countries")
     suspend fun getAllCountriesLite(): List<CountryLite>
 
+    //고아링크 제거
+    @Query("""
+DELETE FROM sheet_lines
+WHERE id = (SELECT id FROM items WHERE name = :item)
+  AND country = (SELECT id FROM countries WHERE name = :country)
+  AND NOT EXISTS (
+      SELECT 1 FROM sheet_lines
+      WHERE item = :item AND country = :country
+  )
+""")
+    suspend fun unlinkIfOrphanItemCountry(item: String, country: String)
 
+    // ✅ 시트라인에 (item,country) 조합이 몇 개 남았는지
+    @Query("""
+SELECT COUNT(*) FROM sheet_lines
+WHERE item = :item AND country = :country
+""")
+    suspend fun countSheetLinesByItemCountry(item: String, country: String): Int
 
+    //수량 로그 이사
+    @Query("""
+UPDATE quantity_log
+SET itemId = :newItemId,
+    countryId = :newCountryId
+WHERE itemId = :oldItemId
+  AND countryId = :oldCountryId
+""")
+    suspend fun migrateQuantityLogs(
+        oldItemId: Long,
+        oldCountryId: Long,
+        newItemId: Long,
+        newCountryId: Long
+    )
+
+    @Query("""
+UPDATE addition_log
+SET itemId = :newItemId,
+    countryId = :newCountryId
+WHERE itemId = :oldItemId
+  AND countryId = :oldCountryId
+""")
+    suspend fun migrateAdditionLogs(
+        oldItemId: Long,
+        oldCountryId: Long,
+        newItemId: Long,
+        newCountryId: Long
+    )
+
+    @Query("""
+UPDATE prediction_ack
+SET itemId = :newItemId
+WHERE itemId = :oldItemId
+""")
+    suspend fun migratePredictionAcks(
+        oldItemId: Long,
+        newItemId: Long,
+    )
+
+    @Query("SELECT * FROM prediction_ack WHERE itemId = :itemId LIMIT 1")
+    suspend fun getPredictionAck(itemId: Long): PredictionAckEntity?
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun upsertPredictionAck(e: PredictionAckEntity)
+
+    @Query("DELETE FROM prediction_ack WHERE itemId = :itemId")
+    suspend fun deletePredictionAck(itemId: Long)
 }

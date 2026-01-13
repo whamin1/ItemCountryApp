@@ -218,7 +218,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                     weight = etWeight.text.toString().toFloatOrNull() ?: 0f,
                     price = etPrice.text.toString().toIntOrNull() ?: 0
                 )
-                vm.updateSheetLine(updated)
+                vm.updateSheetLineAndApplyHome(old = line, new = updated)
                 Toast.makeText(requireContext(), "저장되었습니다", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("취소", null)

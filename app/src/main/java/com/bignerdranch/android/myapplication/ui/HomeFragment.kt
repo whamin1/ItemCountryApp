@@ -72,7 +72,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private lateinit var indexBar: TextView
     private lateinit var tvMode: TextView
     private lateinit var switchMode: SwitchCompat
-    private val isCountMode = MutableStateFlow(true)
+    private val isCountMode = MutableStateFlow(false)
     private lateinit var switchCountMode: SwitchCompat
 
     private val db by lazy { AppDatabase.get(requireContext()) }
@@ -125,8 +125,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 .itemCountryDao()
                 .backfillItemCountryWeightPriceFromSheets()
         }
-        switchCountMode.isChecked = isCountMode.value
-        switchCountMode.text = if (isCountMode.value) "저장" else "기록"
+        switchCountMode.isChecked = false
+        switchCountMode.text = "기록"
         updateSaveModeUi()
 
         switchCountMode.setOnCheckedChangeListener { _, isChecked ->
@@ -136,7 +136,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             updateFabSaveLabel()
             adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
             // ✅ 즉시 표기 전환
-            adapter.setOffHaveMode(enabled = !isChecked, offHave = offHaveMapFlow.value)
+            adapter.setOffHaveMode(enabled = !isCountMode.value, offHave = offHaveMapFlow.value)
         }
 
         fabReset.setOnClickListener {

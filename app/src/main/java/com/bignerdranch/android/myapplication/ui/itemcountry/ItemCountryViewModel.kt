@@ -311,4 +311,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun updateSheetLineAndApplyHome(old: SheetLineEntity, new: SheetLineEntity) = viewModelScope.launch {
+        repo.updateSheetLineAndApplyHome(old, new)
+    }
 }
