@@ -15,7 +15,7 @@ import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 
-data class Row(val name: String, val needed: Int, val have: Int)
+data class Row(val name: String, val needed: Int, val have: Int, val price: Int = 0)
 
 /**
  * 기능:
@@ -99,8 +99,9 @@ class EntryAdapter(
 
     // ----- 외부에서 데이터 주입 -----
     fun submitData(map: Map<String, List<ItemCountryRepository.CountryQty>>) {
+        e("PRICECHK", "heads=${map.size}, sample=${map.entries.firstOrNull()?.value?.firstOrNull()}")
         full = map.entries.map { e ->
-            e.key to e.value.map { cq -> Row(cq.name, cq.needed, cq.have) }
+            e.key to e.value.map { cq -> Row(cq.name, cq.needed, cq.have, cq.price) }
         }
         rebuildSections(full, filterQuery)
     }
@@ -277,6 +278,10 @@ class EntryAdapter(
                 val tvDots = chipView.findViewById<TextView>(R.id.tvDots)
                 val btnMinus = chipView.findViewById<ImageButton>(R.id.btnMinus)
                 val btnPlus = chipView.findViewById<ImageButton>(R.id.btnPlus)
+                val tvPrice = chipView.findViewById<TextView>(R.id.tvPrice)
+
+                tvPrice?.text = if (r.price > 0) "%,d".format(r.price) else ""
+
 
                 // 현재 모드 기준으로 (item,country) 키 만들기
                 val item = if (!tempIsCountryMode) head else r.name

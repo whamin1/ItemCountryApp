@@ -62,7 +62,8 @@ data class ItemCountryRow(
     val item: String = "",
     val country: String = "",
     val needed: Int,
-    val have: Int
+    val have: Int,
+    val price: Float?
 )
 
 /* -------- DAO -------- */
@@ -134,7 +135,8 @@ interface ItemCountryDao {
 SELECT i.name AS item,
        c.name AS country,
        ic.needed AS needed,
-       ic.have AS have
+       ic.have AS have,
+       ic.price AS price
 FROM items i
 JOIN item_country ic ON i.id = ic.itemId
 JOIN countries c ON c.id = ic.countryId
@@ -989,4 +991,41 @@ WHERE itemId = :oldItemId
 
     @Query("DELETE FROM prediction_ack WHERE itemId = :itemId")
     suspend fun deletePredictionAck(itemId: Long)
+
+    data class ItemCountryPrice(
+        val item: String,
+        val country: String,
+        val price: Int
+    )
+
+    @Query("""
+SELECT sl.item AS item,
+       sl.country AS country,
+       sl.price AS price
+FROM sheet_lines sl
+JOIN (
+  SELECT item, country, MAX(createdAt) AS maxC
+  FROM sheet_lines
+  WHERE price > 0
+  GROUP BY item, country
+) t
+ON sl.item = t.item AND sl.country = t.country AND sl.createdAt = t.maxC
+""")
+    fun observeLatestItemCountryPrices(): Flow<List<ItemCountryPrice>>
+    @Query("""
+SELECT id FROM sheets
+ORDER BY id DESC
+LIMIT 1
+""")
+    suspend fun getLatestSheetId(): Long?
+
+    @Query("""
+SELECT item AS item,
+       country AS country,
+       price AS price
+FROM sheet_lines
+WHERE sheetId = :sheetId
+""")
+    suspend fun loadItemCountryPrices(sheetId: Long): List<ItemCountryPrice>
+
 }

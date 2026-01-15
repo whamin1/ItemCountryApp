@@ -44,10 +44,14 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@android:drawable/ic_delete"/>
 
-            <!-- ★ 여기 추가: 빈 공간을 채우는 weight=1 View -->
-            <View
+            <TextView
+                android:id="@+id/tvPrice"
                 android:layout_width="58dp"
-                android:layout_height="0dp" />
+                android:layout_height="match_parent"
+                android:gravity="bottom"
+                android:text="₩0"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
 
             <ImageButton
                 android:id="@+id/btnPlus"

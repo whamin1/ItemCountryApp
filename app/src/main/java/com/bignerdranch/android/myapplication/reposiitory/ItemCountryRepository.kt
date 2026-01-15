@@ -31,6 +31,16 @@ class ItemCountryRepository(
     private val sheetDao: ItemCountryDao.SheetDao,
     private val saveArchiveDao: ItemCountryDao.SaveArchiveDao
 ) {
+
+    private val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+
+    private fun setActiveSheetId(id: Long) {
+        prefs.edit().putLong("active_sheet_id", id).apply()
+    }
+    private fun getActiveSheetId(): Long {
+        return prefs.getLong("active_sheet_id", -1L)
+    }
+
     /** Map<아이템명, 나라리스트> 한 방에 추가 */
     suspend fun addItems(items: Map<String, List<String>>) {
         val itemEntities = items.keys.map { ItemEntity(name = it) }
@@ -142,19 +152,44 @@ class ItemCountryRepository(
     data class CountryQty(
         val name: String,
         val needed: Int,
-        val have: Int
+        val have: Int,
+        val price: Int = 0
     )
 
     fun observeAllWithQuantitiesItemMap(): Flow<Map<String, List<CountryQty>>> =
-        dao.observeItemCountryRows().map { rows ->
-            rows.groupBy({ it.item }, { CountryQty(it.country, it.needed, it.have) })
-                .toSortedMap() // 보기 좋게 정렬 (선택)
+        kotlinx.coroutines.flow.combine(
+            dao.observeItemCountryRows(),
+            dao.observeLatestItemCountryPrices()
+        ) { rows, prices ->
+
+            val priceMap = prices.associate { (it.item to it.country) to it.price }
+
+            rows.groupBy({ it.item }) { r ->
+                CountryQty(
+                    name = r.country,
+                    needed = r.needed,
+                    have = r.have,
+                    price = priceMap[r.item to r.country] ?: 0
+                )
+            }.toSortedMap()
         }
 
     fun observeAllWithQuantitiesCountryMap(): Flow<Map<String, List<CountryQty>>> =
-        dao.observeItemCountryRows().map { rows ->
-            rows.groupBy({ it.country }, { CountryQty(it.item, it.needed, it.have) })
-                .toSortedMap()
+        kotlinx.coroutines.flow.combine(
+            dao.observeItemCountryRows(),
+            dao.observeLatestItemCountryPrices()
+        ) { rows, prices ->
+
+            val priceMap = prices.associate { (it.item to it.country) to it.price }
+
+            rows.groupBy({ it.country }) { r ->
+                CountryQty(
+                    name = r.item,
+                    needed = r.needed,
+                    have = r.have,
+                    price = priceMap[r.item to r.country] ?: 0
+                )
+            }.toSortedMap()
         }
     suspend fun getItemIdByName(name: String) = dao.getItemIdByName(name)
     suspend fun getCountryIdByName(name: String) = dao.getCountryIdByName(name)
@@ -253,6 +288,8 @@ class ItemCountryRepository(
         for (ln in lines) {
             updateQuantity(ln.item, ln.country, ln.needed, ln.have, batchId)
         }
+        setActiveSheetId(sheetId)
+        dao.backfillItemCountryWeightPriceFromSheets()
     }
 
     fun observeSheetsWithLines(): Flow<List<ItemCountryDao.SheetWithLines>> = sheetDao.observeSheetsWithLines()
