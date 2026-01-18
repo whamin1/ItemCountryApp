@@ -26,5 +26,7 @@ data class SheetLineEntity(
     val weight: Float = 0f,
     val price: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
-    val hidden: Boolean = false
+    val hidden: Boolean = false,
+    val isDeleted: Boolean = false,
+    val deletedAt: Long? = null
 )

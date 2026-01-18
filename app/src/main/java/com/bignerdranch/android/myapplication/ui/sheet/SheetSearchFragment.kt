@@ -1,4 +1,4 @@
-package com.bignerdranch.android.myapplication.ui
+package com.bignerdranch.android.myapplication.ui.sheet
 
 import android.os.Bundle
 import android.text.Editable
@@ -11,6 +11,7 @@ import android.widget.TextView
 import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
@@ -65,7 +66,7 @@ class SheetSearchFragment : Fragment(R.layout.fragment_sheet_search) {
         })
 
         viewLifecycleOwner.lifecycleScope.launch {
-            viewLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.sheetItems.collect { list ->
                     adapter.submit(list)
                 }

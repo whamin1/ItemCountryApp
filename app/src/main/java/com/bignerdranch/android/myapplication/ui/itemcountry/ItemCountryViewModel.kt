@@ -265,6 +265,25 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         repo.deleteSheetLineAndUnlinkIfOrphan(line)
     }
 
+    fun observeDeletedLines(sheetId: Long) = repo.observeDeletedLines(sheetId)
+
+    fun softDeleteSheetLine(line: SheetLineEntity) = viewModelScope.launch {
+        repo.sorfDeleteLine(line.id)
+        // unlinkIfOrphan 로직이 있다면 “완전삭제 시점”으로 옮기는 걸 추천
+    }
+
+    fun restoreSheetLine(line: SheetLineEntity) = viewModelScope.launch {
+        repo.restoreLines(line.id)
+    }
+
+    fun hardDeleteSheetLine(line: SheetLineEntity) = viewModelScope.launch {
+        // 여기서만 unlinkIfOrphan 같은 “진짜 삭제 로직”을 실행하는 걸 추천
+        repo.hardDeleteSheetLine(line.id)
+    }
+
+    suspend fun observeActiveLines(sheetId: Long) = repo.observeActiveLines(sheetId)
+
+
     // ItemCountryViewModel
 
     private val _predictions = MutableStateFlow<List<ItemCountryRepository.PredItem>>(emptyList())

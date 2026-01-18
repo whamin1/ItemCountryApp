@@ -506,6 +506,41 @@ WHERE c.name = :country
     @Insert
     suspend fun insertSheetLine(line: SheetLineEntity)
 
+    // 삭제 기능
+
+    @Query("""
+SELECT * FROM sheet_lines
+WHERE sheetId = :sheetId AND isDeleted = 0
+ORDER BY id DESC
+""")
+    fun observeActiveLines(sheetId: Long): Flow<List<SheetLineEntity>>
+
+    @Query("""
+SELECT * FROM sheet_lines
+WHERE sheetId = :sheetId AND isDeleted = 1
+ORDER BY deletedAt DESC
+""")
+    fun observeDeletedLines(sheetId: Long): Flow<List<SheetLineEntity>>
+
+    @Query("""
+UPDATE sheet_lines
+SET isDeleted = 0, deletedAt = NULL
+WHERE id = :lineId
+""")
+    suspend fun restoreLine(lineId: Long)
+
+    @Query("DELETE FROM sheet_lines WHERE id = :lineId")
+    suspend fun hardDeleteLine(lineId: Long)
+
+    @Query("""
+UPDATE sheet_lines
+SET isDeleted = 1, deletedAt = :deletedAt
+WHERE id = :lineId
+""")
+    suspend fun softDelete(lineId: Long, deletedAt: Long)
+
+    //
+
     // ItemCountryDao.kt
     @Query("""
 UPDATE item_country AS ic

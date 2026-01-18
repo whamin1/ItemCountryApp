@@ -1,11 +1,9 @@
-package com.bignerdranch.android.myapplication.ui
+package com.bignerdranch.android.myapplication.ui.sheet
 
 import android.os.Bundle
-import android.util.Log
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.MenuItem
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -15,7 +13,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
-import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -26,7 +23,6 @@ import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
-import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -172,8 +168,8 @@ class SheetsFragment : Fragment(R.layout.fragment_sheets) {
     ) : RecyclerView.Adapter<VH>() {
         private val data = mutableListOf<ItemCountryDao.SheetWithLines>()
         fun submit(list: List<ItemCountryDao.SheetWithLines>) { data.apply { clear(); addAll(list) }; notifyDataSetChanged() }
-        override fun onCreateViewHolder(p: android.view.ViewGroup, v: Int) =
-            VH(android.view.LayoutInflater.from(p.context).inflate(R.layout.item_sheet, p, false))
+        override fun onCreateViewHolder(p: ViewGroup, v: Int) =
+            VH(LayoutInflater.from(p.context).inflate(R.layout.item_sheet, p, false))
         override fun getItemCount() = data.size
         override fun onBindViewHolder(h: VH, pos: Int) {
             val swl = data[pos]

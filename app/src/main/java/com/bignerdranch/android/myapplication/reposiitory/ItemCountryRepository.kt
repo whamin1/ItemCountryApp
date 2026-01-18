@@ -387,6 +387,21 @@ class ItemCountryRepository(
         dao.deleteSheetLineAndUnlinkIfOrphan(line)
     }
 
+    fun observeDeletedLines(sheetId: Long) = dao.observeDeletedLines(sheetId)
+
+    suspend fun sorfDeleteLine(lineId: Long) {
+        dao.softDelete(lineId, System.currentTimeMillis())
+    }
+
+    suspend fun restoreLines(sheetId: Long) = dao.restoreLine(sheetId)
+
+    suspend fun hardDeleteSheetLine(sheetId: Long) =
+        dao.hardDeleteLine(sheetId)
+
+
+    suspend fun observeActiveLines(sheetId: Long) = dao.observeActiveLines(sheetId)
+
+
     suspend fun updateSheetLineAndApplyHome(old: SheetLineEntity, new: SheetLineEntity) {
         db.withTransaction {
             // 1) 시트 라인 업데이트

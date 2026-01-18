@@ -1,4 +1,4 @@
-package com.bignerdranch.android.myapplication.ui
+package com.bignerdranch.android.myapplication.ui.sheet
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -235,7 +235,7 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
     }
     //정령 함수
     private fun loadCountries() {
-        val dao = AppDatabase.get(requireContext()).itemCountryDao()
+        val dao = AppDatabase.Companion.get(requireContext()).itemCountryDao()
 
         viewLifecycleOwner.lifecycleScope.launch {
             val rows: List<ItemCountryDao.CountryRow> = dao.getCountriesBySheet(sheetId)

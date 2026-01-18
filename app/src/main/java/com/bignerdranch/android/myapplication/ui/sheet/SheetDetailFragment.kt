@@ -1,9 +1,10 @@
-package com.bignerdranch.android.myapplication.ui
+package com.bignerdranch.android.myapplication.ui.sheet
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuInflater
@@ -12,11 +13,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.MenuProvider
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
@@ -56,12 +59,27 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                         requireContext().copyToClipboard("시트 내용", buildSheetText())
                         true
                     }
+                    R.id.action_trash -> {
+                        val sheetId = requireArguments().getLong("sheetId")
+                        val title = requireArguments().getString("title").orEmpty()
+                        val country = arguments?.getString("country")
+
+                        findNavController().navigate(
+                            R.id.trashFragment,
+                            Bundle().apply {
+                                putLong("sheetId", sheetId)
+                                putString("title", title)
+                                putString("country", country)
+                            }
+                        )
+                        true
+                    }
                     else -> false
                 }
             }
         } else {
             requireActivity().title = titleStr
-            requireActivity().addMenuProvider(object : androidx.core.view.MenuProvider {
+            requireActivity().addMenuProvider(object : MenuProvider {
                 override fun onCreateMenu(
                     menu: Menu,
                     menuInflater: MenuInflater
@@ -77,7 +95,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                         else -> false
                     }
 
-            }, viewLifecycleOwner, androidx.lifecycle.Lifecycle.State.STARTED)
+            }, viewLifecycleOwner, Lifecycle.State.STARTED)
         }
 
         rv = view.findViewById(R.id.rv)
@@ -90,7 +108,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                vm.observeSheetLines(sheetId).collect { allLines ->
+                vm.observeActiveLines(sheetId).collect { allLines ->
                     val filtered = countryFilter?.let { c ->
                     allLines.filter { it.country == c }
                     } ?: allLines
@@ -143,9 +161,10 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             .setTitle("삭제 확인")
             .setMessage("정말로 '${line.item}' 을(를) 삭제하시겠습니까?")
             .setPositiveButton("삭제") { _, _ ->
-                vm.deleteSheetLineAndUnlinkIfOrphan(line)
-                Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
+                vm.softDeleteSheetLine(line)
+                Toast.makeText(requireContext(), "휴지통으로 이동", Toast.LENGTH_SHORT).show()
             }
+
             .setNegativeButton("취소", null)
             .show()
     }
@@ -206,7 +225,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         etWeight.setText(line.weight.toString())
         etPrice.setText(line.price.toString())
 
-        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        AlertDialog.Builder(requireContext())
             .setTitle("라인 수정")
             .setView(v)
             .setPositiveButton("저장") { _, _ ->

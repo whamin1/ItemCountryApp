@@ -33,7 +33,7 @@ import java.util.concurrent.Executors
         SheetLineEntity::class,
         PredictionAckEntity::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -95,6 +95,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sheet_lines ADD COLUMN isDeleted INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE sheet_lines ADD COLUMN deletedAt INTEGER")
+            }
+        }
+
 
 
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
@@ -125,7 +132,7 @@ abstract class AppDatabase : RoomDatabase() {
 //                     .fallbackToDestructiveMigration()
 
 //                    // ✅ 마이그레이션 추가
-                    .addMigrations(MIGRATION_16_17, MIGRATION_17_18)
+                    .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
                     .build()
                     .also { INSTANCE = it }
             }

@@ -6,4 +6,8 @@
         android:title="복사"
         android:icon="@drawable/ic_content_copy"
         app:showAsAction="ifRoom|withText" />
+    <item
+        android:id="@+id/action_trash"
+        android:title="휴지통"
+        app:showAsAction="never" />
 </menu>

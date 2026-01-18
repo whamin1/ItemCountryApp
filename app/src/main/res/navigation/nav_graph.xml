@@ -12,7 +12,7 @@
 
     <fragment
         android:id="@+id/sheetsFragment"
-        android:name="com.bignerdranch.android.myapplication.ui.SheetsFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.sheet.SheetsFragment"
         android:label="시트" >
         <action
             android:id="@+id/action_sheetsFragment_to_sheetContentFragment"
@@ -20,6 +20,26 @@
         <action
             android:id="@+id/action_sheetsFragment_to_sheetDetailFragment"
             app:destination="@id/sheetDetailFragment" />
+
+        <action
+            android:id="@+id/action_sheetsFragment_to_trashFragment"
+            app:destination="@id/trashFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/trashFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.sheet.TrashFragment"
+        android:label="휴지통">
+        <argument
+            android:name="sheetId"
+            app:argType="long" />
+        <argument
+            android:name="title"
+            app:argType="string" />
+        <argument
+            android:name="country"
+            app:argType="string"
+            app:nullable="true"/>
     </fragment>
 
     <fragment
@@ -43,7 +63,7 @@
 
     <fragment
         android:id="@+id/sheetContentFragment"
-        android:name="com.bignerdranch.android.myapplication.ui.SheetCountriesFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.sheet.SheetCountriesFragment"
         android:label="나라 선택">
         <argument
             android:name="sheetId"
@@ -55,7 +75,7 @@
 
     <fragment
         android:id="@+id/sheetDetailFragment"
-        android:name="com.bignerdranch.android.myapplication.ui.SheetDetailFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.sheet.SheetDetailFragment"
         android:label="시트 상세">
         <argument
             android:name="sheetId"
@@ -81,7 +101,7 @@
 
     <fragment
         android:id="@+id/sheetSearchFragment"
-        android:name="com.bignerdranch.android.myapplication.ui.SheetSearchFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.sheet.SheetSearchFragment"
         android:label="검색"
         tools:layout="@layout/fragment_sheet_search" />
 
