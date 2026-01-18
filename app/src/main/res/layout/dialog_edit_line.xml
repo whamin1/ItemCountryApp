@@ -8,9 +8,20 @@
             android:orientation="vertical" android:padding="12dp"
             android:layout_width="match_parent" android:layout_height="wrap_content">
 
-            <EditText android:id="@+id/etItem" android:hint="아이템" android:layout_width="match_parent" android:layout_height="wrap_content"/>
-            <EditText android:id="@+id/etCountry" android:hint="나라" android:layout_width="match_parent" android:layout_height="wrap_content"/>
-
+            <AutoCompleteTextView
+                android:id="@+id/etItem"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="아이템"
+                android:completionThreshold="0"
+                android:inputType="text" />
+            <AutoCompleteTextView
+                android:id="@+id/etCountry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="나라"
+                android:inputType="text"
+                android:completionThreshold="0" />
             <EditText android:id="@+id/etNeeded" android:hint="필요 수량(숫자)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
             <EditText android:id="@+id/etHave" android:hint="보유 수량(숫자)" android:inputType="number" android:layout_width="match_parent" android:layout_height="wrap_content"/>
 

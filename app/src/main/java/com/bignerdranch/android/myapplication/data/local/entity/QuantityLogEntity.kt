@@ -13,5 +13,10 @@ data class QuantityLogEntity (
     val delta: Int = 0,
     val timestamp: Long = 0L, // System.currentTimeMillis()
     val batchId: Long? = null,
-    val archived: Int = 0
+    val archived: Int = 0,
+    // ✅ 스냅샷 (추가)
+    val itemName: String? = null,
+    val countryName: String? = null,
+    val priceAt: Int? = null,
+    val weightAt: Float? = null,
 )

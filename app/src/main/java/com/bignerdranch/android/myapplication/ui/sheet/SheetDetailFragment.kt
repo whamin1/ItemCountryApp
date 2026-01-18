@@ -27,6 +27,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
@@ -175,8 +176,9 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
         if (currentCountry.isEmpty()) {
             lifecycleScope.launch {
-                vm.observeSheetLines(sheetId).collect { lines ->
-                    currentCountry = lines.firstOrNull()?.country ?: currentCountry
+                lifecycleScope.launch {
+                    val lines = vm.observeSheetLines(sheetId).first()
+                    currentCountry = lines.firstOrNull()?.country.orEmpty()
                 }
         }
 
@@ -200,6 +202,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                     weight = etWeight.text.toString().toFloatOrNull() ?: 0f,
                     price = etPrice.text.toString().toIntOrNull() ?: 0
                 )
+
                 vm.insertSheetLine(sheetId, newLine)
                 Toast.makeText(requireContext(), "라인 추가 완료!", Toast.LENGTH_SHORT).show()
                 this.rv.scrollToPosition(adapter.itemCount - 1)
@@ -210,28 +213,69 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
     private fun openEditDialog(line: SheetLineEntity) {
         val v = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_edit_line, null)
-        val etItem = v.findViewById<EditText>(R.id.etItem)
-        val etCountry = v.findViewById<EditText>(R.id.etCountry)
+        val etItem = v.findViewById<AutoCompleteTextView>(R.id.etItem)
+        val etCountry = v.findViewById<AutoCompleteTextView>(R.id.etCountry)
         val etNeeded = v.findViewById<EditText>(R.id.etNeeded)
         val etHave = v.findViewById<EditText>(R.id.etHave)
         val etWeight = v.findViewById<EditText>(R.id.etWeight)
         val etPrice = v.findViewById<EditText>(R.id.etPrice)
 
         // 초기값 채우기
-        etItem.setText(line.item)
-        etCountry.setText(line.country)
+        etItem.setText(line.item, false)
+        etCountry.setText(line.country, false)
         etNeeded.setText(line.needed.toString())
         etHave.setText(line.have.toString())
         etWeight.setText(line.weight.toString())
         etPrice.setText(line.price.toString())
 
+        // ✅ 목록 로드 + 어댑터 연결
+        viewLifecycleOwner.lifecycleScope.launch {
+            val items = vm.getAllItemNamesOnce()
+            val countries = vm.getAllCountryNamesOnce()
+
+            etItem.setAdapter(
+                ArrayAdapter(
+                    requireContext(),
+                    android.R.layout.simple_list_item_1,
+                    items
+                )
+            )
+            etCountry.setAdapter(
+                ArrayAdapter(
+                    requireContext(),
+                    android.R.layout.simple_list_item_1,
+                    countries
+                )
+            )
+
+            // 눌렀을 때 바로 드롭다운
+            etItem.setOnClickListener { etItem.showDropDown() }
+            etCountry.setOnClickListener { etCountry.showDropDown() }
+        }
+
         AlertDialog.Builder(requireContext())
             .setTitle("라인 수정")
             .setView(v)
             .setPositiveButton("저장") { _, _ ->
+                val newItem = etItem.text.toString().trim()
+                val newCountry = etCountry.text.toString().trim()
+
+                // ✅ “기존 목록만” 강제: 목록에 없으면 막기
+                val okItem = vm.isValidItemName(newItem)      // 아래 추가
+                val okCountry = vm.isValidCountryName(newCountry)
+
+                if (!okItem) {
+                    Toast.makeText(requireContext(), "아이템은 목록에서만 선택 가능해요", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (!okCountry) {
+                    Toast.makeText(requireContext(), "나라는 목록에서만 선택 가능해요", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
                 val updated = line.copy(
-                    item = etItem.text.toString().trim(),
-                    country = etCountry.text.toString().trim(),
+                    item = newItem,
+                    country = newCountry,
                     needed = etNeeded.text.toString().toIntOrNull() ?: 0,
                     have = etHave.text.toString().toIntOrNull() ?: 0,
                     weight = etWeight.text.toString().toFloatOrNull() ?: 0f,
@@ -242,6 +286,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             }
             .setNegativeButton("취소", null)
             .show()
+
     }
 
     // 간단 어댑터

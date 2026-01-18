@@ -333,4 +333,33 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     fun updateSheetLineAndApplyHome(old: SheetLineEntity, new: SheetLineEntity) = viewModelScope.launch {
         repo.updateSheetLineAndApplyHome(old, new)
     }
+
+    private var cachedItems: Set<String> = emptySet()
+    private var cachedCountries: Set<String> = emptySet()
+
+    suspend fun getAllItemNamesOnce(): List<String> = withContext(Dispatchers.IO) {
+        // ✅ items 테이블 기준이 제일 안전(중복 방지)
+        val list = repo.getAllItemsNamesOnce()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+
+        cachedItems = list.toSet()
+        list
+    }
+
+    suspend fun getAllCountryNamesOnce(): List<String> = withContext(Dispatchers.IO) {
+        val list = repo.getAllCountryNamesOnce()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+
+        cachedCountries = list.toSet()
+        list
+    }
+
+    fun isValidItemName(name: String): Boolean = cachedItems.contains(name.trim())
+    fun isValidCountryName(name: String): Boolean = cachedCountries.contains(name.trim())
 }

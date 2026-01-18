@@ -242,6 +242,7 @@ LIMIT 200
 
     @Query("""
     SELECT a.id AS id,
+
            i.name AS item,
            c.name AS country,
            a.needed AS needed,
@@ -283,6 +284,8 @@ LIMIT 200
     // 저장 로그 전용 (배치가 있는 것만 보이게)
     @Query("""
     SELECT q.id AS id,
+COALESCE(q.itemName, i.name) AS item,
+COALESCE(q.countryName, c.name) AS country,
            i.name AS item,
            c.name AS country,
            q.fromHave AS fromHave,
@@ -293,8 +296,8 @@ LIMIT 200
            ic.weight AS weight,
            ic.price AS price
     FROM quantity_log q
-    JOIN items i ON i.id = q.itemId
-    JOIN countries c ON c.id = q.countryId
+    LEFT JOIN items i ON i.id = q.itemId
+    LEFT JOIN countries c ON c.id = q.countryId
     JOIN item_country ic ON ic.itemId = q.itemId AND ic.countryId = q.countryId
     WHERE COALESCE(q.batchId, 0) > 0
     ORDER BY q.timestamp DESC
@@ -321,36 +324,25 @@ LIMIT 200
 
     // 아이템 탭: [+ 클릭]만 보기 (delta > 0, batchId = 0 또는 NULL)
     @Query("""
-    SELECT
+SELECT
   q.id AS id,
-  i.name AS item,
-  c.name AS country,
+  COALESCE(q.itemName, i.name, '(deleted)') AS item,
+COALESCE(q.countryName, c.name, '(deleted)') AS country,
   q.fromHave AS fromHave,
   q.toHave AS toHave,
   q.delta AS delta,
   q.timestamp AS timestamp,
   COALESCE(q.batchId, 0) AS batchId,
-  COALESCE(ic.weight, sl.weight) AS weight,
-  COALESCE(ic.price , sl.price ) AS price
+  COALESCE(q.itemName, i.name) AS item,
+COALESCE(q.countryName, c.name) AS country,
+q.weightAt AS weight,
+q.priceAt AS price
 FROM quantity_log q
-JOIN items i      ON i.id = q.itemId
-JOIN countries c  ON c.id = q.countryId
-LEFT JOIN item_country ic 
-       ON ic.itemId = q.itemId AND ic.countryId = q.countryId
-LEFT JOIN (
-  SELECT s1.item, s1.country, s1.weight, s1.price
-  FROM sheet_lines s1
-  JOIN (
-    SELECT item, country, MAX(createdAt) AS maxC
-    FROM sheet_lines
-    WHERE (weight > 0 OR price > 0)
-    GROUP BY item, country
-  ) s2
-  ON s1.item = s2.item AND s1.country = s2.country AND s1.createdAt = s2.maxC
-) sl ON sl.item = i.name AND sl.country = c.name
+LEFT JOIN items i ON i.id = q.itemId
+LEFT JOIN countries c ON c.id = q.countryId
 WHERE q.delta > 0
   AND COALESCE(q.batchId, 0) = 0
-ORDER BY q.timestamp DESC
+ORDER BY q.timestamp DESC, q.id DESC
 LIMIT :limit
 """)
     suspend fun getRecentPlusClicks(limit: Int = 20000): List<QuantityRow>
@@ -422,8 +414,10 @@ SELECT q.id AS id,
        q.delta AS delta,
        q.timestamp AS timestamp,
        COALESCE(q.batchId, 0) AS batchId,
-       ic.weight AS weight,           -- ✅ 추가
-       ic.price  AS price             -- ✅ 추가
+       COALESCE(q.itemName, i.name) AS item,
+COALESCE(q.countryName, c.name) AS country,
+q.weightAt AS weight,
+q.priceAt AS price
 FROM quantity_log q
 JOIN items i     ON i.id = q.itemId
 JOIN countries c ON c.id = q.countryId
@@ -995,9 +989,10 @@ s.title AS sheetTitle,
 SELECT itemId, countryId, timestamp
 FROM quantity_log
 WHERE delta > 0
+  AND countryId IS NOT NULL
   AND COALESCE(batchId, 0) = 0
   AND COALESCE(archived, 0) = 0
-ORDER BY timestamp DESC
+ORDER BY timestamp DESC, id DESC
 LIMIT :limit
 """)
     suspend fun getRecentPlusLogLiteIds(limit: Int = 20000): List<PlusLiteIdRow>
@@ -1125,4 +1120,86 @@ WHERE sheetId = :sheetId
 """)
     suspend fun loadItemCountryPrices(sheetId: Long): List<ItemCountryPrice>
 
+    //// 스냅샷
+
+    data class Snapshot(
+        val itemName: String,
+        val countryName: String?,
+        val priceAt: Int?,
+        val weightAt: Float?
+    )
+
+    @Query("""
+SELECT
+  i.name AS itemName,
+  c.name AS countryName,
+  COALESCE(ic.price , sl.price ) AS priceAt,
+  COALESCE(ic.weight, sl.weight) AS weightAt
+FROM items i
+LEFT JOIN countries c ON c.id = :countryId
+LEFT JOIN item_country ic ON ic.itemId = :itemId AND ic.countryId = :countryId
+LEFT JOIN (
+  SELECT s1.item, s1.country, s1.weight, s1.price
+  FROM sheet_lines s1
+  JOIN (
+    SELECT item, country, MAX(createdAt) AS maxC
+    FROM sheet_lines
+    WHERE (weight > 0 OR price > 0)
+    GROUP BY item, country
+  ) s2
+  ON s1.item = s2.item AND s1.country = s2.country AND s1.createdAt = s2.maxC
+) sl ON sl.item = i.name AND sl.country = c.name
+WHERE i.id = :itemId
+LIMIT 1
+""")
+    suspend fun getSnapshot(itemId: Long, countryId: Long?): Snapshot?
+
+    @Transaction
+    suspend fun insertQuantityLogWithSnapshot(log: QuantityLogEntity): Long {
+        val snap = getSnapshot(log.itemId, log.countryId)
+        val fixed = log.copy(
+            itemName = snap?.itemName,
+            countryName = snap?.countryName,
+            priceAt = snap?.priceAt,
+            weightAt = snap?.weightAt
+        )
+        return insertQuantityLog(fixed)
+    }
+
+    @Transaction
+    suspend fun insertQuantityLogSnap(log: QuantityLogEntity): Long {
+        val snap = getSnapshot(log.itemId, log.countryId)
+        val fixed = log.copy(
+            itemName = snap?.itemName ?: log.itemName,
+            countryName = snap?.countryName ?: log.countryName,
+            priceAt = snap?.priceAt ?: log.priceAt,
+            weightAt = snap?.weightAt ?: log.weightAt
+        )
+        return insertQuantityLog(fixed)
+    }
+
+
+    data class NameSnap(val itemName: String, val countryName: String?)
+
+    @Query("""
+SELECT
+  i.name AS itemName,
+  c.name AS countryName
+FROM items i
+LEFT JOIN countries c ON c.id = :countryId
+WHERE i.id = :itemId
+LIMIT 1
+""")
+    suspend fun getNameSnap(itemId: Long, countryId: Long?): NameSnap?
+
+    @Transaction
+    suspend fun insertQuantityLogFixed(log: QuantityLogEntity): Long {
+        val snap = getNameSnap(log.itemId, log.countryId)
+        val fixed = log.copy(
+            itemName = snap?.itemName ?: log.itemName,      // 혹시 이미 들어오면 유지
+            countryName = snap?.countryName ?: log.countryName
+            // priceAt/weightAt도 같은 방식으로 스냅샷 채우면 됨
+        )
+        return insertQuantityLog(fixed)
+    }
 }

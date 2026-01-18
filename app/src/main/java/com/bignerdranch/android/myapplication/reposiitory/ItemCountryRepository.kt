@@ -16,6 +16,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -136,7 +137,7 @@ class ItemCountryRepository(
         // 중거분만 로그
         val delta = have - before
         if (delta > 0) {
-            dao.insertQuantityLog(
+            dao.insertQuantityLogSnap(
                 QuantityLogEntity(
                     itemId = itemId,
                     countryId = countryId,
@@ -226,7 +227,7 @@ class ItemCountryRepository(
            delta = toHave - fromHave, // 보통 1
            timestamp = timestamp
        )
-        dao.insertQuantityLog(log)
+        dao.insertQuantityLogSnap(log)
     }
 
     suspend fun updateWeightAndPrice(item: String, country: String, weight: Float, price: Float) {
@@ -480,6 +481,11 @@ class ItemCountryRepository(
         val avgGapMs: Long,
         val sampleCount: Int
     )
+
+    suspend fun getAllItemsNamesOnce(): List<String> = dao.getAllItemsNames()
+
+    suspend fun getAllCountryNamesOnce(): List<String> =
+        dao.getAllCountryNames().first()
 
 
     private val KST = ZoneId.of("Asia/Seoul")

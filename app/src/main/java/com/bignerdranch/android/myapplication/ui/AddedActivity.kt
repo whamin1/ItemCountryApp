@@ -35,7 +35,7 @@ class AddedActivity : AppCompatActivity() {
 
     private fun loadAndSubmit(adapter: QuantityBatchAdapter){
         lifecycleScope.launch {
-            val rows: List<ItemCountryDao.HistoryRow> = dao.getHistoryRowsNoDelta(200)   // ← 새로 만든 쿼리 호출
+            val rows: List<ItemCountryDao.HistoryRow> = dao.getHistoryRowsNoDelta(20000)   // ← 새로 만든 쿼리 호출
             val batches = buildBatches(rows)
             adapter.submit(batches)
         }

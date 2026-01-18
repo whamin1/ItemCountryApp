@@ -33,7 +33,7 @@ import java.util.concurrent.Executors
         SheetLineEntity::class,
         PredictionAckEntity::class
     ],
-    version = 19,
+    version = 20,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -102,6 +102,74 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE quantity_log ADD COLUMN itemName TEXT")
+                db.execSQL("ALTER TABLE quantity_log ADD COLUMN countryName TEXT")
+                db.execSQL("ALTER TABLE quantity_log ADD COLUMN priceAt INTEGER")
+                db.execSQL("ALTER TABLE quantity_log ADD COLUMN weightAt REAL")
+                db.execSQL("""
+                    UPDATE quantity_log
+                    SET itemName = (SELECT name FROM items WHERE id = quantity_log.itemId)
+                    WHERE itemName IS NULL
+                    """)
+
+                db.execSQL("""
+                    UPDATE quantity_log
+                    SET countryName = (SELECT name FROM countries WHERE id = quantity_log.countryId)
+                    WHERE countryName IS NOT NULL AND countryId IS NOT NULL
+                    """)
+                db.execSQL("""
+                    UPDATE quantity_log
+                    SET priceAt = (
+                    SELECT ic.price
+                    FROM item_country ic
+                    WHERE ic.itemId = quantity_log.itemId
+                    AND ic.countryId = quantity_log.countryId
+                    )
+                    WHERE countryId IS NOT NULL AND priceAt IS NULL
+                    """)
+
+                db.execSQL("""
+                    UPDATE quantity_log
+                    SET weightAt = (
+                    SELECT ic.weight
+                    FROM item_country ic
+                    WHERE ic.itemId = quantity_log.itemId
+                    AND ic.countryId = quantity_log.countryId
+                    )
+                    WHERE countryId IS NOT NULL AND weightAt IS NULL
+                    """)
+                db.execSQL("""
+UPDATE quantity_log
+SET priceAt = (
+  SELECT sl.price
+  FROM sheet_lines sl
+  WHERE sl.item = (SELECT name FROM items WHERE id = quantity_log.itemId)
+    AND sl.country = (SELECT name FROM countries WHERE id = quantity_log.countryId)
+    AND sl.price > 0
+  ORDER BY sl.createdAt DESC
+  LIMIT 1
+)
+WHERE countryId IS NOT NULL AND (priceAt IS NULL OR priceAt = 0)
+""")
+
+                db.execSQL("""
+UPDATE quantity_log
+SET weightAt = (
+  SELECT sl.weight
+  FROM sheet_lines sl
+  WHERE sl.item = (SELECT name FROM items WHERE id = quantity_log.itemId)
+    AND sl.country = (SELECT name FROM countries WHERE id = quantity_log.countryId)
+    AND sl.weight > 0
+  ORDER BY sl.createdAt DESC
+  LIMIT 1
+)
+WHERE countryId IS NOT NULL AND (weightAt IS NULL OR weightAt = 0)
+""")
+            }
+        }
+
 
 
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
@@ -132,7 +200,7 @@ abstract class AppDatabase : RoomDatabase() {
 //                     .fallbackToDestructiveMigration()
 
 //                    // ✅ 마이그레이션 추가
-                    .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                    .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
                     .build()
                     .also { INSTANCE = it }
             }
