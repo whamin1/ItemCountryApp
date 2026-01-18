@@ -17,7 +17,10 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
+import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
+import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -42,6 +45,18 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     private var toolbar: MaterialToolbar? = null
     private var currentRows: List<ItemCountryDao.QuantityRow> = emptyList()
     private var searchQuery: String = ""
+
+    private var bulkMode = false
+    private var bulkBaseDayMillis: Long? = null   // 기준 날짜(00:00)
+    private var bulkNextMinute = 9 * 60           // 다음 입력 시간(분) 기본 09:00
+    private var bulkStepMin = 5                   // 간격(분) 기본 5분
+    private var bulkDelta = 1                     // 기본 delta
+    private val BULK_END_MIN = 16 * 60     // 16:00
+    private val BULK_STEP_MIN = 5          // 예: 5분 간격
+    // ✅ UNDO용(마지막 1건)
+    private var lastInsertedLogId: Long? = null
+    private var lastBulkPrevMinute: Int? = null
+    private var lastWasBulk: Boolean = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -85,6 +100,27 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                 }
                 R.id.action_export_excel -> {
                     exportToCsv()
+                    true
+                }
+                R.id.action_add_item_only -> {
+                    showAddFromSheetSearchDialog()
+                    true
+                }
+                R.id.action_bulk_start -> {
+                    pickBaseDate { day0 ->
+                        bulkMode = true
+                        bulkBaseDayMillis = day0
+                        bulkNextMinute = 9 * 60
+                        updateBulkSubtitle()
+                        Toast.makeText(requireContext(), "연속 입력 ON (09:00부터)", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+                R.id.action_bulk_stop -> {
+                    bulkMode = false
+                    bulkBaseDayMillis = null
+                    toolbar?.subtitle = "전체 기간"
+                    Toast.makeText(requireContext(), "연속 입력 OFF", Toast.LENGTH_SHORT).show()
                     true
                 }
                 else -> false
@@ -134,6 +170,12 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
 
             holder.tv.text = "$time ${r.item} · ${r.country} $changeStr $w$p"
+
+            holder.itemView.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION) return@setOnClickListener
+                showEditDialog(data[pos])   // ✅ QuantityRow 수정 다이얼로그
+            }
 
             holder.itemView.setOnLongClickListener {
                 val realPos = holder.bindingAdapterPosition
@@ -189,6 +231,454 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                 "전체 기간"
             }
         }
+    }
+
+    //추가 다이얼 로그
+
+
+    private fun showAddFromSheetSearchDialog() {
+        val v = layoutInflater.inflate(R.layout.dialog_add_from_sheet_search, null)
+
+        val sv = v.findViewById<androidx.appcompat.widget.SearchView>(R.id.sv)
+        val rv = v.findViewById<RecyclerView>(R.id.rv)
+        val tvPicked = v.findViewById<TextView>(R.id.tvPicked)
+        val tvTime = v.findViewById<TextView>(R.id.tvTime)
+        val btnPickTime = v.findViewById<android.widget.Button>(R.id.btnPickTime)
+        val etDelta = v.findViewById<android.widget.EditText>(R.id.etDelta)
+
+        var pickedRow: ItemSearchRow? = null
+        var pickedMillis: Long? = null
+
+        val pickAdapter = SheetPickAdapter { row ->
+            if (bulkMode && bulkBaseDayMillis != null) {
+                // ✅ 한 줄 탭 = 바로 저장
+                val ts = makeBulkTimestamp()          // 09:00~16:00 자동
+                insertLogFromRow(row, ts, bulkDelta)  // DB 저장
+                bulkNextMinute = (bulkNextMinute + bulkStepMin).coerceAtMost(16 * 60)
+                updateBulkSubtitle()
+
+                // (선택) 선택 표시만 살짝
+                tvPicked.text = "저장: ${row.country} / ${row.item} / ${fmt.format(Date(ts))}"
+
+            } else {
+                // ✅ bulk 아니면 기존 방식 (선택 → 시간 선택 → 추가 버튼)
+                pickedRow = row
+                tvPicked.text = "선택: ${row.sheetTitle} / ${row.country} / ${row.item}"
+            }
+        }
+
+        rv.layoutManager = LinearLayoutManager(requireContext())
+        rv.adapter = pickAdapter
+
+        // 초기 목록 로드
+        viewLifecycleOwner.lifecycleScope.launch {
+            pickAdapter.submit(dao.searchItemsOnce(""))
+        }
+
+        fun runSearch(q: String) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                pickAdapter.submit(dao.searchItemsOnce(q))
+            }
+        }
+
+        sv.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                runSearch(query.orEmpty())
+                hideKeyboard(sv)
+                sv.clearFocus()
+                return true
+            }
+            override fun onQueryTextChange(newText: String?): Boolean {
+                runSearch(newText.orEmpty())
+                return true
+            }
+        })
+
+        btnPickTime.setOnClickListener {
+            pickPastDateTime { ms ->
+                pickedMillis = ms
+                tvTime.text = "시간: ${fmt.format(Date(ms))}"
+            }
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("로그 추가(시트 검색)")
+            .setView(v)
+            .setPositiveButton("추가") { _, _ ->
+                val row = pickedRow
+                val ts: Long = if (bulkMode && bulkBaseDayMillis != null) {
+                    val minute = bulkNextMinute.coerceAtMost(BULK_END_MIN)
+
+                    val cal = Calendar.getInstance().apply {
+                        timeInMillis = bulkBaseDayMillis!!
+                        set(Calendar.HOUR_OF_DAY, minute / 60)
+                        set(Calendar.MINUTE, minute % 60)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    cal.timeInMillis
+                } else {
+                    pickedMillis ?: run {
+                        Toast.makeText(requireContext(), "시간을 선택해줘", Toast.LENGTH_SHORT).show()
+                        return@setPositiveButton
+                    }
+                }
+
+                if (bulkMode) {
+                    bulkNextMinute += BULK_STEP_MIN
+                    if (bulkNextMinute > BULK_END_MIN) {
+                        bulkNextMinute = BULK_END_MIN
+                    }
+                    updateBulkSubtitle()
+                }
+
+                if (row == null) {
+                    Toast.makeText(requireContext(), "항목을 선택해줘", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (ts == null) {
+                    Toast.makeText(requireContext(), "시간을 선택해줘", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                val delta = etDelta.text.toString().toIntOrNull() ?: 1
+                if (delta <= 0) {
+                    Toast.makeText(requireContext(), "delta는 1 이상", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val itemId = dao.getItemIdByName(row.item)
+                    val countryId = dao.getCountryIdByName(row.country)
+
+                    if (itemId == null) {
+                        Toast.makeText(requireContext(), "아이템을 못 찾음: ${row.item}", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    if (countryId == null) {
+                        Toast.makeText(requireContext(), "나라를 못 찾음: ${row.country}", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+
+                    val from = dao.getLatestToHave(itemId, countryId) ?: 0
+                    val to = from + delta
+
+                    // ✅ bulk면 시간 포인터 증가 전에 백업
+                    val wasBulk = bulkMode && bulkBaseDayMillis != null
+                    val prevMinute = if (wasBulk) bulkNextMinute else null
+
+                    val newId = dao.insertQuantityLog(
+                        QuantityLogEntity(
+                            itemId = itemId,
+                            countryId = countryId,
+                            fromHave = from,
+                            toHave = to,
+                            delta = delta,
+                            timestamp = ts,
+                            archived = 0
+                        )
+                    )
+
+                    // ✅ bulk 시간 포인터는 insert 성공 후 증가(상한 16:00 고정)
+                    if (wasBulk) {
+                        bulkNextMinute += bulkStepMin
+                        if (bulkNextMinute > 16 * 60) bulkNextMinute = 16 * 60
+                        updateBulkSubtitle() // 너가 만든 subtitle 갱신 함수
+                    }
+
+                    // ✅ UNDO 정보 저장
+                    lastInsertedLogId = newId
+                    lastWasBulk = wasBulk
+                    lastBulkPrevMinute = prevMinute
+
+                    reloadRows()
+                    Toast.makeText(
+                        requireContext(),
+                        "실수면 아래 UNDO로 되돌릴 수 있어",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    Snackbar.make(
+                        requireView(),
+                        "추가됨: ${row.country} / ${row.item}",
+                        Snackbar.LENGTH_LONG
+                    )
+
+                                // ✅ Snackbar + UNDO
+                    .setAction("UNDO") {
+                            val undoId = lastInsertedLogId ?: return@setAction
+
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                try {
+                                    dao.deleteQuantityLogById(undoId)
+
+                                    // ✅ bulk면 시간 포인터 롤백
+                                    if (lastWasBulk) {
+                                        val back = lastBulkPrevMinute
+                                        if (back != null) {
+                                            bulkNextMinute = back
+                                            updateBulkSubtitle()
+                                        }
+                                    }
+
+                                    lastInsertedLogId = null
+                                    lastBulkPrevMinute = null
+                                    lastWasBulk = false
+
+                                    reloadRows()
+                                    Toast.makeText(requireContext(), "되돌림 완료", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    Toast.makeText(requireContext(), "UNDO 실패", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                        .show()
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun hideKeyboard(view: View) {
+        val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(view.windowToken, 0)
+    }
+    private fun showEditDialog(row: ItemCountryDao.QuantityRow) {
+        val v = layoutInflater.inflate(R.layout.dialog_edit_quantity_log, null)
+
+        val tvHeader = v.findViewById<TextView>(R.id.tvHeader)
+        val spItem = v.findViewById<android.widget.Spinner>(R.id.spItem)
+        val spCountry = v.findViewById<android.widget.Spinner>(R.id.spCountry)
+        val tvTime = v.findViewById<TextView>(R.id.tvTime)
+        val btnPickTime = v.findViewById<android.widget.Button>(R.id.btnPickTime)
+        val etDelta = v.findViewById<android.widget.EditText>(R.id.etDelta)
+
+        tvHeader.text = "로그 수정: ${row.item} / ${row.country}"
+
+        var pickedMillis = row.timestamp
+        tvTime.text = "시간: ${fmt.format(Date(pickedMillis))}"
+        etDelta.setText(row.delta.toString())
+
+        btnPickTime.setOnClickListener {
+            pickPastDateTime { ms ->
+                pickedMillis = ms
+                tvTime.text = "시간: ${fmt.format(Date(ms))}"
+            }
+        }
+
+        // Spinner 데이터 준비(비동기)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val items = dao.getAllItemsIdName()
+            val countries = dao.getAllCountriesIdName()
+
+            val itemNames = items.map { it.name }
+            val countryNames = countries.map { it.name }
+
+            spItem.adapter = android.widget.ArrayAdapter(
+                requireContext(),
+                android.R.layout.simple_spinner_dropdown_item,
+                itemNames
+            )
+            spCountry.adapter = android.widget.ArrayAdapter(
+                requireContext(),
+                android.R.layout.simple_spinner_dropdown_item,
+                countryNames
+            )
+
+            // 현재 값에 맞춰 선택
+            val itemIdx = itemNames.indexOf(row.item).let { if (it >= 0) it else 0 }
+            val countryIdx = countryNames.indexOf(row.country).let { if (it >= 0) it else 0 }
+
+            spItem.setSelection(itemIdx)
+            spCountry.setSelection(countryIdx)
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("수정")
+            .setView(v)
+            .setPositiveButton("저장") { _, _ ->
+                val newDelta = etDelta.text.toString().toIntOrNull() ?: row.delta
+                if (newDelta <= 0) {
+                    Toast.makeText(requireContext(), "delta는 1 이상", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                val pickedItemName = spItem.selectedItem?.toString().orEmpty()
+                val pickedCountryName = spCountry.selectedItem?.toString().orEmpty()
+
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val entity = dao.getQuantityLogById(row.id)
+                    if (entity == null) {
+                        Toast.makeText(requireContext(), "원본 로그를 찾지 못했어", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+
+                    val newItemId = dao.getItemIdByName(pickedItemName)
+                    val newCountryId = dao.getCountryIdByName(pickedCountryName)
+
+                    if (newItemId == null) {
+                        Toast.makeText(requireContext(), "아이템을 못 찾음: $pickedItemName", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    if (newCountryId == null) {
+                        Toast.makeText(requireContext(), "나라를 못 찾음: $pickedCountryName", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+
+                    // ✅ 안전하게 from/to 재계산: (해당 조합 최신값) 기반
+                    val latest = dao.getLatestToHave(newItemId, newCountryId) ?: 0
+                    val from = latest
+                    val to = from + newDelta
+
+                    dao.updateQuantityLog(
+                        entity.copy(
+                            itemId = newItemId,
+                            countryId = newCountryId,
+                            timestamp = pickedMillis,
+                            delta = newDelta,
+                            fromHave = from,
+                            toHave = to
+                        )
+                    )
+
+                    Toast.makeText(requireContext(), "수정 완료", Toast.LENGTH_SHORT).show()
+                    reloadRows()
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun reloadRows() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val rows = dao.getRecentPlusClicks(20000)
+                .filter { it.delta > 0 }
+            allRows = rows
+            applyFilter()
+        }
+    }
+
+    private fun pickPastDateTime(onPicked: (Long) -> Unit) {
+        val now = System.currentTimeMillis()
+        val cal = Calendar.getInstance()
+
+        val dp = android.app.DatePickerDialog(
+            requireContext(),
+            { _, y, m, d ->
+                val chosen = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, y)
+                    set(Calendar.MONTH, m)
+                    set(Calendar.DAY_OF_MONTH, d)
+                }
+
+                val tp = android.app.TimePickerDialog(
+                    requireContext(),
+                    { _, hh, mm ->
+                        chosen.set(Calendar.HOUR_OF_DAY, hh)
+                        chosen.set(Calendar.MINUTE, mm)
+                        chosen.set(Calendar.SECOND, 0)
+                        chosen.set(Calendar.MILLISECOND, 0)
+
+                        val picked = chosen.timeInMillis
+                        if (picked > now) {
+                            Toast.makeText(requireContext(), "미래 시간은 선택할 수 없어요", Toast.LENGTH_SHORT).show()
+                            return@TimePickerDialog
+                        }
+                        onPicked(picked)
+                    },
+                    cal.get(Calendar.HOUR_OF_DAY),
+                    cal.get(Calendar.MINUTE),
+                    true
+                )
+                tp.show()
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        )
+        dp.datePicker.maxDate = now
+        dp.show()
+    }
+
+    private fun makeBulkTimestamp(): Long {
+        val base = bulkBaseDayMillis ?: System.currentTimeMillis()
+        val minute = bulkNextMinute.coerceIn(9 * 60, 16 * 60)
+        return base + minute * 60_000L
+    }
+
+    private fun insertLogFromRow(row: ItemSearchRow, ts: Long, delta: Int) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val itemId = dao.getItemIdByName(row.item)
+            val countryId = dao.getCountryIdByName(row.country)
+            if (itemId == null || countryId == null) {
+                Toast.makeText(requireContext(), "ID 못찾음: ${row.item} / ${row.country}", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            val from = dao.getLatestToHave(itemId, countryId) ?: 0
+            val to = from + delta
+
+            dao.insertQuantityLog(
+                QuantityLogEntity(
+                    itemId = itemId,
+                    countryId = countryId,
+                    fromHave = from,
+                    toHave = to,
+                    delta = delta,
+                    timestamp = ts,
+                    archived = 0
+                )
+            )
+            Toast.makeText(requireContext(), "저장됨 ${fmt.format(Date(ts))}", Toast.LENGTH_SHORT).show()
+            reloadRows()
+        }
+    }
+
+    private fun pickBaseDate(onPicked: (Long) -> Unit) {
+        val now = System.currentTimeMillis()
+        val cal = Calendar.getInstance().apply { timeInMillis = now }
+
+        val dp = android.app.DatePickerDialog(
+            requireContext(),
+            { _, y, m, d ->
+                val chosen = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, y)
+                    set(Calendar.MONTH, m)
+                    set(Calendar.DAY_OF_MONTH, d)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val picked = chosen.timeInMillis
+                if (picked > now) {
+                    Toast.makeText(requireContext(), "미래 날짜는 안돼요", Toast.LENGTH_SHORT).show()
+                    return@DatePickerDialog
+                }
+                onPicked(picked)
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        )
+        dp.datePicker.maxDate = now
+        dp.show()
+    }
+
+    private fun updateBulkSubtitle() {
+        if (!bulkMode || bulkBaseDayMillis == null) return
+
+        val base = Calendar.getInstance().apply {
+            timeInMillis = bulkBaseDayMillis!!
+            set(Calendar.HOUR_OF_DAY, bulkNextMinute / 60)
+            set(Calendar.MINUTE, bulkNextMinute % 60)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        toolbar?.subtitle = "연속 입력: ${fmt.format(base.time)}"
     }
 
     // ✅ 날짜 필터 적용 함수

@@ -165,6 +165,68 @@ ORDER BY i.name, c.name
 """)
     suspend fun getQuantityLogs(itemId: Long, countryId: Long, limit: Int = 20000): List<QuantityLogEntity>
 
+    @Update
+    suspend fun updateQuantityLog(entity: QuantityLogEntity)
+
+    @Query("SELECT * FROM quantity_log WHERE id = :id LIMIT 1")
+    suspend fun getQuantityLogById(id: Long): QuantityLogEntity?
+
+    @Query("""
+SELECT id, name FROM items
+WHERE name LIKE '%' || :q || '%'
+ORDER BY name
+LIMIT 50
+""")
+    suspend fun searchItemsLite(q: String): List<ItemLite> // ItemLite(id,name) data class
+
+    @Query("""
+SELECT toHave FROM quantity_log
+WHERE itemId = :itemId
+AND countryId IS NULL
+AND archived = 0
+ORDER BY timestamp DESC, id DESC
+LIMIT 1
+""")
+    suspend fun getLatestToHaveNoCountry(itemId: Long): Int?
+
+    @Query("""
+SELECT toHave FROM quantity_log
+WHERE itemId = :itemId
+AND countryId = :countryId
+AND archived = 0
+ORDER BY timestamp DESC, id DESC
+LIMIT 1
+""")
+    suspend fun getLatestToHave(itemId: Long, countryId: Long): Int?
+
+    @Query("""
+SELECT
+l.sheetId AS sheetId,
+s.title AS sheetTitle,
+l.country AS country,
+l.item AS item,
+l.price AS price,
+l.weight AS weight
+FROM sheet_lines AS l
+JOIN sheets AS s ON l.sheetId = s.id
+WHERE :q = ''
+OR l.item LIKE '%' || :q || '%'
+OR l.country LIKE '%' || :q || '%'
+OR s.title LIKE '%' || :q || '%'
+ORDER BY s.title, l.country, l.item
+LIMIT 200
+""")
+    suspend fun searchItemsOnce(q: String): List<ItemSearchRow>
+
+    data class IdName(val id: Long, val name: String)
+
+    @Query("SELECT id, name FROM items ORDER BY name")
+    suspend fun getAllItemsIdName(): List<IdName>
+
+    @Query("SELECT id, name FROM countries WHERE hidden = 0 ORDER BY name")
+    suspend fun getAllCountriesIdName(): List<IdName>
+
+
     data class AdditionRow(
         val id: Long = 0L,
         val item: String = "",
