@@ -8,10 +8,14 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 
 class PredictionsAdapter(
-    private val onClick: (String) -> Unit
+    private val onClick: (String) -> Unit,
+    private val onLongClick: (Ui) -> Unit,
+    private val onReportClick: (Ui) -> Unit
+
 ) : RecyclerView.Adapter<PredictionsAdapter.VH>() {
 
     data class Ui(
+        val itemId: Long,
         val item: String,
         val etaMs: Long,
         val label: String,
@@ -28,7 +32,7 @@ class PredictionsAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val v = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_pred_row, parent, false)
-        return VH(v, onClick)
+        return VH(v, onClick, onLongClick, onReportClick)
     }
 
     override fun getItemCount() = list.size
@@ -39,15 +43,23 @@ class PredictionsAdapter(
 
     class VH(
         v: View,
-        private val onClick: (String) -> Unit
+        private val onClick: (String) -> Unit,
+        private val onLongClick: (Ui) -> Unit,
+        private val onReportClick: (Ui) -> Unit
     ) : RecyclerView.ViewHolder(v) {
         private val tvItem = v.findViewById<TextView>(R.id.tvItem)
         private val tvMeta = v.findViewById<TextView>(R.id.tvMeta)
+        private val btnReport = v.findViewById<View>(R.id.btnReport)
+
 
         fun bind(ui: Ui) {
             tvItem.text = ui.item
             tvMeta.text = "${formatEta(ui.etaMs)} · ${ui.label}"
             itemView.setOnClickListener { onClick(ui.item) }
+            itemView.setOnLongClickListener {
+                onLongClick(ui); true
+            }
+            btnReport.setOnClickListener { onReportClick(ui) }
         }
 
         fun formatEta(ms: Long): String {

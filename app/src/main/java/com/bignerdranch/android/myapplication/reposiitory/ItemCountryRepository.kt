@@ -487,6 +487,10 @@ class ItemCountryRepository(
     suspend fun getAllCountryNamesOnce(): List<String> =
         dao.getAllCountryNames().first()
 
+    suspend fun getItemNameById(itemId: Long): String? {
+        return dao.getItemNameById(itemId)
+    }
+
 
     private val KST = ZoneId.of("Asia/Seoul")
 
@@ -592,10 +596,6 @@ class ItemCountryRepository(
             // 가까울수록 점수 높게 (2시간 스케일)
             return 1.0 / (1.0 + (predicted - now).toDouble() / (2 * 60 * 60 * 1000))
         }
-
-
-
-
 
 
         // 디버그 카운터
@@ -858,7 +858,176 @@ class ItemCountryRepository(
         return d
     }
 
-    ////////
+    ///////////
+
+    suspend fun buildItemReport(
+        itemId: Long,
+        logLimit: Int = 5000,
+        showLogs: Int = 30,
+        predCount: Int = 5
+    ): ItemCountryDao.ItemReport {
+        val now = System.currentTimeMillis()
+
+        // 1) 이름 맵
+        val itemNameMap = dao.getAllItemsLite().associate { it.id to it.name }
+        val countryNameMap = dao.getAllCountriesLite().associate { it.id to it.name } // 없으면 만들어야 함
+        val itemName = itemNameMap[itemId] ?: (dao.getItemNameById(itemId) ?: "Item")
+
+        // 2) 해당 item의 +로그(ASC)
+        val rows = dao.getRecentPlusLogLiteIdsByItemAsc(itemId, logLimit)
+        if (rows.size < 2) {
+            return ItemCountryDao.ItemReport(
+                itemId = itemId,
+                itemName = itemName,
+                summary = ItemCountryDao.ItemReport.Summary(null, null, 0, 0),
+                logs = emptyList(),
+                nextPredictions = emptyList()
+            )
+        }
+
+        // 3) itemName 기준 weight 맵(countryName -> weightKg)
+        val weightByCountry: Map<String, Double> =
+            dao.getWeightsByItemName(itemName)
+                .associate { it.country to it.weight.toDouble() }
+                .filterValues { it > 0.0 }
+
+        // 4) “근무일/조기퇴근/빈날” 계산은 예측과 동일하게
+        //    리포트도 예측과 같은 전역 activeDays를 쓰는게 가장 일관성 좋음
+        val globalLogs = dao.getRecentPlusLogLiteIds(20000) // 네가 이미 쓰는 함수
+        val activeDayIndexes: Set<Long> = globalLogs
+            .map { dayIndexKst(it.timestamp) }
+            .toSet()
+
+        val lastMinuteByDay: Map<Long, Long> =
+            globalLogs.groupBy { dayIndexKst(it.timestamp) }
+                .mapValues { (_, dayLogs) -> dayLogs.maxOf { minuteOfDayKst(it.timestamp) } }
+
+        fun earlyLeaveTailMs(day: Long): Long {
+            val lastMin = lastMinuteByDay[day] ?: return 0L
+            return if (lastMin < (15 * 60L)) (16 * 60L - lastMin) * MIN_MS else 0L
+        }
+
+        fun sumEarlyLeaveTailBetween(prevTs: Long, currTs: Long): Long {
+            val prevDay = dayIndexKst(prevTs)
+            val currDay = dayIndexKst(currTs)
+            if (prevDay >= currDay) return 0L
+
+            var sum = 0L
+            if (activeDayIndexes.contains(prevDay)) sum += earlyLeaveTailMs(prevDay)
+
+            var d = prevDay + 1
+            while (d < currDay) {
+                if (activeDayIndexes.contains(d)) sum += earlyLeaveTailMs(d)
+                d++
+            }
+            return sum
+        }
+
+        fun formatPredictionTimeStep1(
+            predictedAt: Long,
+            now: Long = System.currentTimeMillis()
+        ): String {
+
+            val diffMs = predictedAt - now
+
+            // 1) 이미 지난 경우
+            if (diffMs <= 0) {
+                return "지남"
+            }
+
+            val diffMin = diffMs / MIN_MS
+            val diffHour = diffMs / HOUR_MS
+
+            return when {
+                diffMin < 1 -> "곧"
+                diffMin < 60 -> "${diffMin}분 후"
+                diffHour < 24 -> "${diffHour}시간 후"
+                else -> "${diffHour / 24}일 후"
+            }
+        }
+
+        // 5) workGap 계산 (예측 코드 그대로)
+        val workGaps = mutableListOf<Long>() // i=1..n-1 gap
+        for (i in 1 until rows.size) {
+            val prevTs = rows[i - 1].timestamp
+            val currTs = rows[i].timestamp
+            val rawGap = currTs - prevTs
+
+            val prevDay = dayIndexKst(prevTs)
+            val currDay = dayIndexKst(currTs)
+
+            val missingDays = countGlobalMissingDaysBetween(prevDay, currDay, activeDayIndexes)
+            val dayDiff = (currDay - prevDay).coerceAtLeast(0L)
+
+            val baseNonWork = dayDiff * (17 * HOUR_MS)
+            val missingExtra = missingDays * (7 * HOUR_MS)
+            val earlyExtra = sumEarlyLeaveTailBetween(prevTs, currTs)
+
+            val workGap = rawGap - baseNonWork - missingExtra - earlyExtra
+            workGaps += maxOf(0L, workGap)
+        }
+
+        // 6) 표시용 로그 30개(최신부터)
+        //    gap은 “currTs 기준”이니까 rows[i]와 workGaps[i-1]가 한 쌍
+        val pairs = (1 until rows.size).map { i ->
+            val curr = rows[i]
+            val gap = workGaps[i - 1]
+            curr to gap
+        }.takeLast(showLogs).asReversed()
+
+        val logUi = pairs.map { (curr, gap) ->
+            val country = countryNameMap[curr.countryId] ?: "?"
+            val w = weightByCountry[country] // kg
+            val speed = if (w != null && gap > 0L) w / (gap.toDouble() / HOUR_MS.toDouble()) else null
+
+            ItemCountryDao.ItemReport.LogRow(
+                ts = curr.timestamp,
+                country = country,
+                weightKg = w,
+                speedKgPerHour = speed,
+                workGapMs = gap
+            )
+        }
+
+        // 7) 요약(kg/h, 평균 gap)
+        val valid = logUi.filter { it.weightKg != null && it.workGapMs > 0L }
+        val totalWeight = valid.sumOf { it.weightKg!! }
+        val totalHours = valid.sumOf { it.workGapMs }.toDouble() / HOUR_MS.toDouble()
+
+        val kgPerHour = if (valid.size >= 3 && totalHours > 0) totalWeight / totalHours else null
+        val avgGap = if (logUi.isNotEmpty()) (logUi.sumOf { it.workGapMs } / logUi.size) else null
+
+        // 8) 다음 예상 5개
+        val recent15 = workGaps.takeLast(15)
+        val interval = median(recent15)
+        val base = rows.last().timestamp
+
+        val preds = mutableListOf<ItemCountryDao.ItemReport.Pred>()
+        var k = 1L
+        while (preds.size < predCount) {
+            val predicted = addBusinessTime(base, interval * k)
+            preds += ItemCountryDao.ItemReport.Pred(
+                predictedAt = predicted,
+                label = formatPredictionTimeStep1(predicted, now)
+            )
+            k++
+        }
+
+        return ItemCountryDao.ItemReport(
+            itemId = itemId,
+            itemName = itemName,
+            summary = ItemCountryDao.ItemReport.Summary(
+                kgPerHour = kgPerHour,
+                avgWorkGapMs = avgGap,
+                sampleCount = valid.size,
+                totalCount = logUi.size
+            ),
+            logs = logUi,
+            nextPredictions = preds
+        )
+    }
+
+    ///////
 
     suspend fun ackPrediction(itemId: Long) {
         dao.upsertAck(PredictionAckEntity(itemId, System.currentTimeMillis()))

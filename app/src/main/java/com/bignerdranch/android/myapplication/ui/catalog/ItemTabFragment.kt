@@ -7,6 +7,8 @@ import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -138,6 +140,10 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                 .filter { it.delta > 0 }             // ← 핵심: 플러스만 보기
             allRows = rows
             applyFilter()
+        }
+
+        lifecycleScope.launch {
+            dao.backfillLogSnapshotsFromSheetLines()
         }
 
     }
@@ -375,7 +381,8 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                             toHave = to,
                             delta = delta,
                             timestamp = ts,
-                            archived = 0
+                            archived = 0,
+                            batchId = 0L
                         )
                     )
 
@@ -470,29 +477,41 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
         // Spinner 데이터 준비(비동기)
         viewLifecycleOwner.lifecycleScope.launch {
-            val items = dao.getAllItemsIdName()
-            val countries = dao.getAllCountriesIdName()
-
+            // 1) items 로드 후 spItem 세팅
+            val items = dao.getActiveItemsIdName()
             val itemNames = items.map { it.name }
-            val countryNames = countries.map { it.name }
-
-            spItem.adapter = android.widget.ArrayAdapter(
+            spItem.adapter = ArrayAdapter(
                 requireContext(),
                 android.R.layout.simple_spinner_dropdown_item,
                 itemNames
             )
-            spCountry.adapter = android.widget.ArrayAdapter(
-                requireContext(),
-                android.R.layout.simple_spinner_dropdown_item,
-                countryNames
-            )
 
-            // 현재 값에 맞춰 선택
-            val itemIdx = itemNames.indexOf(row.item).let { if (it >= 0) it else 0 }
-            val countryIdx = countryNames.indexOf(row.country).let { if (it >= 0) it else 0 }
+            // 2) 아이템 선택 시 -> 그 아이템에 속한 나라만 로드해서 spCountry 갱신
+            fun loadCountriesForSelectedItem(selectCountryName: String? = null) {
+                val pickedItemName = spItem.selectedItem?.toString().orEmpty()
+                val itemId = items.firstOrNull { it.name == pickedItemName }?.id ?: return
 
-            spItem.setSelection(itemIdx)
-            spCountry.setSelection(countryIdx)
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val countries = dao.getCountriesForItem(itemId)
+                    val countryNames = countries.map { it.name }
+
+                    spCountry.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, countryNames)
+
+                    val idx = selectCountryName?.let { countryNames.indexOf(it) } ?: -1
+                    spCountry.setSelection(if (idx >= 0) idx else 0)
+                }
+            }
+
+// 초기 한번(현재 row.country로 맞춰주기)
+            loadCountriesForSelectedItem(row.country)
+
+// 아이템 바뀌면 나라 목록 갱신
+            spItem.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
+                    loadCountriesForSelectedItem(null)
+                }
+                override fun onNothingSelected(parent: AdapterView<*>) {}
+            }
         }
 
         androidx.appcompat.app.AlertDialog.Builder(requireContext())
@@ -509,6 +528,15 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                 val pickedCountryName = spCountry.selectedItem?.toString().orEmpty()
 
                 viewLifecycleOwner.lifecycleScope.launch {
+                    // 새 조합 기준 weight/price 조회
+                    val line = dao.getSheetLineForItemCountry(
+                        itemName = pickedItemName,
+                        countryName = pickedCountryName
+                    )
+
+                    val newWeightAt = line?.weight
+                    val newPriceAt = line?.price
+
                     val entity = dao.getQuantityLogById(row.id)
                     if (entity == null) {
                         Toast.makeText(requireContext(), "원본 로그를 찾지 못했어", Toast.LENGTH_SHORT).show()
@@ -539,7 +567,11 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                             timestamp = pickedMillis,
                             delta = newDelta,
                             fromHave = from,
-                            toHave = to
+                            toHave = to,
+                            itemName = pickedItemName,
+                            countryName = pickedCountryName,
+                            weightAt = newWeightAt,
+                            priceAt = newPriceAt
                         )
                     )
 
@@ -628,7 +660,8 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                     toHave = to,
                     delta = delta,
                     timestamp = ts,
-                    archived = 0
+                    archived = 0,
+                    batchId = 0L
                 )
             )
             Toast.makeText(requireContext(), "저장됨 ${fmt.format(Date(ts))}", Toast.LENGTH_SHORT).show()

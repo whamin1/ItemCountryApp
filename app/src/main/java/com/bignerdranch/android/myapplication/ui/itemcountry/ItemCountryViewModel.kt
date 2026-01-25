@@ -362,4 +362,11 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun isValidItemName(name: String): Boolean = cachedItems.contains(name.trim())
     fun isValidCountryName(name: String): Boolean = cachedCountries.contains(name.trim())
+
+    suspend fun getItemNameById(itemId: Long): String? = repo.getItemNameById(itemId)
+
+    suspend fun buildItemReport(itemId: Long): ItemCountryDao.ItemReport {
+        return repo.buildItemReport(itemId)
+    }
+
 }

@@ -220,12 +220,51 @@ LIMIT 200
 
     data class IdName(val id: Long, val name: String)
 
-    @Query("SELECT id, name FROM items ORDER BY name")
+    @Query("""
+SELECT MIN(id) AS id, name
+FROM items
+GROUP BY name
+ORDER BY name
+""")
     suspend fun getAllItemsIdName(): List<IdName>
 
-    @Query("SELECT id, name FROM countries WHERE hidden = 0 ORDER BY name")
+    @Query("""
+SELECT MIN(id) AS id, name
+FROM countries
+WHERE hidden = 0
+GROUP BY name
+ORDER BY name
+""")
     suspend fun getAllCountriesIdName(): List<IdName>
 
+    @Query("""
+SELECT i.id AS id, i.name AS name
+FROM items i
+WHERE EXISTS (
+  SELECT 1 FROM item_country ic
+  WHERE ic.itemId = i.id
+)
+ORDER BY i.name
+""")
+    suspend fun getActiveItemsIdName(): List<IdName>
+
+    // ItemCountryDao
+
+    @Query("""
+SELECT c.id AS id, c.name AS name
+FROM item_country ic
+JOIN countries c ON c.id = ic.countryId
+WHERE ic.itemId = :itemId AND c.hidden = 0
+ORDER BY c.name
+""")
+    suspend fun getCountriesForItem(itemId: Long): List<IdName>
+
+    @Query("""
+SELECT i.id AS id, i.name AS name
+FROM items i
+ORDER BY i.name
+""")
+    suspend fun getAllItemsIdName2(): List<IdName> // 이미 있으면 재사용
 
     data class AdditionRow(
         val id: Long = 0L,
@@ -327,16 +366,14 @@ COALESCE(q.countryName, c.name) AS country,
 SELECT
   q.id AS id,
   COALESCE(q.itemName, i.name, '(deleted)') AS item,
-COALESCE(q.countryName, c.name, '(deleted)') AS country,
+  COALESCE(q.countryName, c.name, '(deleted)') AS country,
   q.fromHave AS fromHave,
   q.toHave AS toHave,
   q.delta AS delta,
   q.timestamp AS timestamp,
   COALESCE(q.batchId, 0) AS batchId,
-  COALESCE(q.itemName, i.name) AS item,
-COALESCE(q.countryName, c.name) AS country,
-q.weightAt AS weight,
-q.priceAt AS price
+  q.weightAt AS weight,
+  q.priceAt AS price
 FROM quantity_log q
 LEFT JOIN items i ON i.id = q.itemId
 LEFT JOIN countries c ON c.id = q.countryId
@@ -346,6 +383,36 @@ ORDER BY q.timestamp DESC, q.id DESC
 LIMIT :limit
 """)
     suspend fun getRecentPlusClicks(limit: Int = 20000): List<QuantityRow>
+
+    @Query("""
+UPDATE quantity_log
+SET
+  weightAt = COALESCE(weightAt, (
+    SELECT sl.weight
+    FROM sheet_lines sl
+    WHERE sl.item = COALESCE(quantity_log.itemName, (SELECT name FROM items WHERE id = quantity_log.itemId))
+      AND sl.country = COALESCE(quantity_log.countryName, (SELECT name FROM countries WHERE id = quantity_log.countryId))
+      AND sl.weight > 0
+      AND sl.isDeleted = 0
+      AND sl.hidden = 0
+    ORDER BY sl.createdAt DESC, sl.id DESC
+    LIMIT 1
+  )),
+  priceAt = COALESCE(priceAt, (
+    SELECT sl.price
+    FROM sheet_lines sl
+    WHERE sl.item = COALESCE(quantity_log.itemName, (SELECT name FROM items WHERE id = quantity_log.itemId))
+      AND sl.country = COALESCE(quantity_log.countryName, (SELECT name FROM countries WHERE id = quantity_log.countryId))
+      AND sl.price > 0
+      AND sl.isDeleted = 0
+      AND sl.hidden = 0
+    ORDER BY sl.createdAt DESC, sl.id DESC
+    LIMIT 1
+  ))
+WHERE (weightAt IS NULL OR weightAt = 0)
+   OR (priceAt  IS NULL OR priceAt  = 0)
+""")
+    suspend fun backfillLogSnapshotsFromSheetLines(): Int
 
     @Query("DELETE FROM quantity_log WHERE id = :id")
     suspend fun deleteQuantityLogById(id: Long)
@@ -1201,5 +1268,93 @@ LIMIT 1
             // priceAt/weightAt도 같은 방식으로 스냅샷 채우면 됨
         )
         return insertQuantityLog(fixed)
+    }
+
+    data class WeightPrice(
+        val weight: Float,
+        val price: Int
+    )
+
+    @Query("""
+SELECT weight, price
+FROM sheet_lines
+WHERE item = :itemName
+  AND country = :countryName
+  AND isDeleted = 0
+LIMIT 1
+""")
+    suspend fun getSheetLineForItemCountry(
+        itemName: String,
+        countryName: String
+    ): WeightPrice?
+
+    data class ItemReport(
+        val itemId: Long,
+        val itemName: String,
+        val summary: Summary,
+        val logs: List<LogRow>,          // 최신부터 30
+        val nextPredictions: List<Pred>  // 5개
+    ) {
+        data class Summary(
+            val kgPerHour: Double?,      // null이면 계산불가
+            val avgWorkGapMs: Long?,     // 최근 30 평균
+            val sampleCount: Int,        // 속도 계산에 쓴 개수
+            val totalCount: Int          // 보통 30
+        )
+
+        data class LogRow(
+            val ts: Long,                // currTs
+            val country: String,
+            val weightKg: Double?,       // 0이면 null 처리 추천
+            val speedKgPerHour: Double?, // weight/gap 둘 다 있어야 계산
+            val workGapMs: Long
+        )
+
+        data class Pred(
+            val predictedAt: Long,
+            val label: String
+        )
+    }
+
+    @Query("""
+SELECT itemId, countryId, timestamp
+FROM quantity_log
+WHERE delta > 0 AND itemId = :itemId
+ORDER BY timestamp ASC
+LIMIT :limit
+""")
+    suspend fun getRecentPlusLogLiteIdsByItemAsc(
+        itemId: Long,
+        limit: Int
+    ): List<PlusLiteIdRow>
+
+    data class CountryWeightRow(
+        val country: String,
+        val weight: Float
+    )
+
+    @Query("""
+SELECT country, weight
+FROM sheet_lines
+WHERE item = :itemName
+  AND isDeleted = 0
+""")
+    suspend fun getWeightsByItemName(itemName: String): List<CountryWeightRow>
+
+    sealed class ItemReportUi {
+        data class Header(val title: String) : ItemReportUi()
+
+        data class LogRow(
+            val time: String,
+            val country: String,
+            val weight: String,
+            val speed: String,
+            val duration: String
+        ) : ItemReportUi()
+
+        data class PredictionRow(
+            val time: String,
+            val label: String
+        ) : ItemReportUi()
     }
 }

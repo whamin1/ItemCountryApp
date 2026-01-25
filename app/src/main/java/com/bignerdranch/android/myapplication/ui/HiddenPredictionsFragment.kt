@@ -15,10 +15,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
-import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.launch
 
-class PredictionsFragment : Fragment(R.layout.fragment_predictions) {
+class HiddenPredictionsFragment : Fragment(R.layout.fragment_predictions) {
 
     private val vm: ItemCountryViewModel by activityViewModels()
     private lateinit var adapter: PredictionsAdapter
@@ -27,7 +26,7 @@ class PredictionsFragment : Fragment(R.layout.fragment_predictions) {
     private var query: String = ""
 
     private val PREFS_NAME = "pred_prefs"
-    private val KEY_EXCLUDED_IDS = "excluded_item_ids" // Long set을 String set으로 저장
+    private val KEY_EXCLUDED_IDS = "excluded_item_ids"
 
     private fun prefs() = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -45,26 +44,14 @@ class PredictionsFragment : Fragment(R.layout.fragment_predictions) {
         val rv = view.findViewById<RecyclerView>(R.id.rvPred)
         val sv = view.findViewById<SearchView>(R.id.searchPred)
 
-        val toolbar = view.findViewById<MaterialToolbar>(R.id.topAppBar)
-        toolbar.inflateMenu(R.menu.menu_predictions)
-
-        toolbar.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                R.id.action_hidden_items -> {
-                    findNavController().navigate(R.id.action_predictionsFragment_to_hiddenPredictionsFragment)
-                    true
-                }
-                else -> false
-            }
-        }
-
         adapter = PredictionsAdapter(
             onClick = { item ->
                 vm.requestJumpToItem(item)
-                findNavController().popBackStack()
+                findNavController().popBackStack() // 숨김 화면 닫고 Home 가고 싶으면 이대로
             },
             onLongClick = { ui ->
-                toggleExclude(ui.itemId, ui.item)
+                // 숨김 화면에서는 롱클릭 = 숨김 해제 (복구)
+                unhide(ui.itemId, ui.item)
             },
             onReportClick = { ui ->
                 findNavController().navigate(
@@ -94,39 +81,25 @@ class PredictionsFragment : Fragment(R.layout.fragment_predictions) {
             raw = vm.buildPredictionsAll()
             render()
         }
-
-
-
-        // 들어올 때 한번 갱신
-        viewLifecycleOwner.lifecycleScope.launch {
-            vm.refreshPredictions()
-        }
     }
 
-    private fun toggleExclude(itemId: Long, name: String) {
+    private fun unhide(itemId: Long, name: String) {
         val excluded = getExcludedIds().toMutableSet()
-        val msg = if (excluded.contains(itemId)) {
-            excluded.remove(itemId)
-            "제외 해제: $name"
-        } else {
-            excluded.add(itemId)
-            "예측에서 제외: $name"
-        }
+        excluded.remove(itemId)
         setExcludedIds(excluded)
+        Toast.makeText(requireContext(), "숨김 해제: $name", Toast.LENGTH_SHORT).show()
         render()
-        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
     }
-
 
     private fun render() {
         val now = System.currentTimeMillis()
         val q = query.trim()
         val excluded = getExcludedIds()
 
-        val base = raw.filter { it.itemId !in excluded } // ✅ 제외 먼저
+        val base = raw.filter { it.itemId in excluded } // ✅ 숨김만
 
         val filtered = if (q.isBlank()) base else {
-            base.filter { it.item.contains(q, ignoreCase = true) } // ✅ 검색도 base에서
+            base.filter { it.item.contains(q, ignoreCase = true) }
         }
 
         val ui = filtered
@@ -140,7 +113,7 @@ class PredictionsFragment : Fragment(R.layout.fragment_predictions) {
                     predictedAt = it.predictedAt
                 )
             }
-            .sortedBy { it.etaMs.coerceAtLeast(0) }
+            .sortedBy { it.item } // 숨김 목록은 이름순이 더 자연스러움
 
         adapter.submit(ui)
     }

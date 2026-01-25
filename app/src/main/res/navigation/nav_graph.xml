@@ -11,6 +11,15 @@
         android:label="홈" />
 
     <fragment
+        android:id="@+id/hiddenPredictionsFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.HiddenPredictionsFragment"
+        android:label="숨긴 아이템" />
+
+    <action
+        android:id="@+id/action_predictionsFragment_to_hiddenPredictionsFragment"
+        app:destination="@id/hiddenPredictionsFragment" />
+
+    <fragment
         android:id="@+id/sheetsFragment"
         android:name="com.bignerdranch.android.myapplication.ui.sheet.SheetsFragment"
         android:label="시트" >
@@ -109,4 +118,13 @@
         android:id="@+id/predictionsFragment"
         android:name="com.bignerdranch.android.myapplication.ui.PredictionsFragment"
         android:label="Predictions" />
+
+    <fragment
+        android:id="@+id/itemReportFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.ItemReportFragment"
+        android:label="Item Report">
+        <argument
+            android:name="itemId"
+            app:argType="long" />
+    </fragment>
 </navigation>
