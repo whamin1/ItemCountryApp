@@ -34,4 +34,9 @@
         android:id="@+id/action_bulk_stop"
         android:title="연속 입력 종료"
         app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/action_production_report"
+        android:title="생산 보고서"
+        app:showAsAction="never" />
 </menu>

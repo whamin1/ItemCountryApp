@@ -127,4 +127,26 @@
             android:name="itemId"
             app:argType="long" />
     </fragment>
+
+    <fragment
+        android:id="@+id/reportEntryFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.report.ReportEntryFragment"
+        android:label="생산 보고서">
+        <action
+            android:id="@+id/action_reportEntryFragment_to_reportItemsFragment"
+            app:destination="@id/reportItemsFragment" />
+    </fragment>
+    <fragment
+        android:id="@+id/reportItemsFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.report.ReportItemsFragment"
+        android:label="ReportItems">
+        <action
+            android:id="@+id/action_reportItemsFragment_to_reportItemDetailFragment"
+            app:destination="@id/reportItemDetailFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/reportItemDetailFragment"
+        android:name="com.bignerdranch.android.myapplication.ui.report.ReportItemDetailFragment"
+        android:label="Item Detail"/>
 </navigation>

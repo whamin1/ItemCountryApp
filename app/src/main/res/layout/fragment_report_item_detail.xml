@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingTop="16dp">
+
+    <include
+        android:id="@+id/incPeriod"
+        layout="@layout/view_report_period_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:text="아이템 상세" />
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/tilCountry"
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        app:endIconMode="dropdown_menu">
+
+        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+            android:id="@+id/actCountry"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="국가 (All)"
+            android:inputType="none"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <TextView
+        android:id="@+id/tvSummary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:alpha="0.75"
+        android:text="총 0건 · 0개 · 0.00 kg"/>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="24dp"/>
+</LinearLayout>

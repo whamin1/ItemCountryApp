@@ -1,6 +1,7 @@
 package com.bignerdranch.android.myapplication.ui
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
@@ -84,6 +85,16 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private lateinit var fabSave: ExtendedFloatingActionButton
     private lateinit var fabReset: FloatingActionButton
     private lateinit var fabArchive: FloatingActionButton
+    private val PREFS_NAME = "pred_prefs"
+    private val KEY_EXCLUDED_IDS = "excluded_item_ids"
+
+    private fun predPrefs() =
+        requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun getExcludedPredIds(): Set<Long> {
+        val set = predPrefs().getStringSet(KEY_EXCLUDED_IDS, emptySet()) ?: emptySet()
+        return set.mapNotNull { it.toLongOrNull() }.toSet()
+    }
 
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -422,7 +433,13 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                         tvPred.isVisible = false
                     } else {
                         tvPred.isVisible = true
-                        renderPredictions(tvPred, list)
+
+                        val excluded = getExcludedPredIds()
+                        val preview = list
+                            .filter { it.itemId !in excluded }
+                            .take(6)
+
+                        renderPredictions(tvPred, preview)
                     }
                 }
             }

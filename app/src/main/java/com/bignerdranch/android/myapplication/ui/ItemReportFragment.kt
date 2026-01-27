@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
+import com.bignerdranch.android.myapplication.ui.report.ReportViewModel
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -20,6 +21,7 @@ import java.util.Locale
 class ItemReportFragment : Fragment(R.layout.fragment_item_report) {
 
     private val vm: ItemCountryViewModel by activityViewModels()
+    private val reportVm: ReportViewModel by activityViewModels()
 
     private fun formatDuration(ms: Long): String {
         val totalMin = ms / 60_000
@@ -39,7 +41,13 @@ class ItemReportFragment : Fragment(R.layout.fragment_item_report) {
         toolbar.inflateMenu(R.menu.menu_item_report)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val report = vm.buildItemReport(itemId)
+            val p = reportVm.period.value
+            val report = vm.buildItemReport(
+                itemId = itemId,
+                from = p.from,
+                to = p.to,
+                countryId = reportVm.selectedCountryId.value
+            )
 
             toolbar.title = report.itemName
 
@@ -69,7 +77,13 @@ class ItemReportFragment : Fragment(R.layout.fragment_item_report) {
         rv.adapter = adapter
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val report = vm.buildItemReport(itemId)
+            val p = reportVm.period.value
+            val report = vm.buildItemReport(
+                itemId = itemId,
+                from = p.from,
+                to = p.to,
+                countryId = reportVm.selectedCountryId.value
+            )
 
             val ui = mutableListOf<ItemCountryDao.ItemReportUi>()
 

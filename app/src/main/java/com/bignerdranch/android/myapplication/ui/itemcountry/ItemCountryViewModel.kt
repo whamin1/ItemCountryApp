@@ -310,7 +310,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
             val preds = withContext(Dispatchers.Default) {
                 repo.buildPredictions(limit = 20000)
             }
-            _predictions.value = preds.take(5)
+            _predictions.value = preds.take(50)
             _predLoading.value = false
         }
     }
@@ -365,8 +365,22 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun getItemNameById(itemId: Long): String? = repo.getItemNameById(itemId)
 
-    suspend fun buildItemReport(itemId: Long): ItemCountryDao.ItemReport {
-        return repo.buildItemReport(itemId)
+    suspend fun buildItemReport(
+        itemId: Long,
+        from: Long,
+        to: Long,
+        countryId: Long?
+    ): ItemCountryDao.ItemReport {
+        return repo.buildItemReport(itemId, from, to, countryId)
+    }
+
+    data class DateRange(val startMs: Long, val endMs: Long) // endMs는 inclusive로 쓰든지 통일
+
+    private val _reportRange = MutableStateFlow<DateRange?>(null)
+    val reportRange = _reportRange.asStateFlow()
+
+    fun setReportRange(range: DateRange) {
+        _reportRange.value = range
     }
 
 }

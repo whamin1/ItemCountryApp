@@ -737,7 +737,7 @@ ORDER BY i.name, c.name
         if (delta <= 0) return
         val before = getOffHave(itemId, countryId)
         val after = before + delta
-        insertQuantityLog(
+        insertQuantityLogWithSnapshot(
             QuantityLogEntity(
                 itemId = itemId,
                 countryId = countryId,
@@ -758,7 +758,7 @@ ORDER BY i.name, c.name
 
         if (before <= 0) return
 
-        insertQuantityLog(
+        insertQuantityLogWithSnapshot(
             QuantityLogEntity(
                 itemId = itemId,
                 countryId = countryId,
@@ -823,7 +823,7 @@ WHERE itemId = :itemId
         rows.forEach { r ->
             val consume = kotlin.math.min(r.have, r.offHave)
             if (consume > 0) {
-                insertQuantityLog(
+                insertQuantityLogWithSnapshot(
                     QuantityLogEntity(
                         id = 0,
                         itemId = r.itemId,
@@ -908,7 +908,7 @@ WHERE itemId = :itemId
         val before = getOffHave(itemId, countryId)
         val after = before + delta
 
-        insertQuantityLog(
+        insertQuantityLogWithSnapshot(
             QuantityLogEntity(
                 id = 0,
                 itemId = itemId,
@@ -1084,6 +1084,36 @@ LIMIT :limit
     @Query("SELECT id, name FROM countries")
     suspend fun getAllCountriesLite(): List<CountryLite>
 
+    @Query("""
+SELECT DISTINCT c.id AS id, c.name AS name
+FROM quantity_log q
+JOIN countries c ON c.id = q.countryId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.itemId = :itemId
+  AND q.timestamp BETWEEN :from AND :to
+ORDER BY c.name COLLATE NOCASE
+""")
+    suspend fun reportCountriesForItem(
+        itemId: Long,
+        from: Long,
+        to: Long
+    ): List<CountryLite>
+
+    @Query("""
+SELECT DISTINCT c.id AS id, c.name AS name
+FROM quantity_log q
+JOIN countries c ON c.id = q.countryId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+ORDER BY c.name COLLATE NOCASE
+""")
+    suspend fun reportCountriesInPeriod(
+        from: Long,
+        to: Long
+    ): List<CountryLite>
+
     //고아링크 제거
     @Query("""
 DELETE FROM sheet_lines
@@ -1224,11 +1254,12 @@ LIMIT 1
     @Transaction
     suspend fun insertQuantityLogWithSnapshot(log: QuantityLogEntity): Long {
         val snap = getSnapshot(log.itemId, log.countryId)
+
         val fixed = log.copy(
-            itemName = snap?.itemName,
-            countryName = snap?.countryName,
-            priceAt = snap?.priceAt,
-            weightAt = snap?.weightAt
+            itemName = snap?.itemName ?: log.itemName,
+            countryName = snap?.countryName ?: log.countryName,
+            priceAt = snap?.priceAt ?: log.priceAt,
+            weightAt = snap?.weightAt ?: log.weightAt,
         )
         return insertQuantityLog(fixed)
     }
@@ -1244,6 +1275,8 @@ LIMIT 1
         )
         return insertQuantityLog(fixed)
     }
+
+
 
 
     data class NameSnap(val itemName: String, val countryName: String?)
@@ -1328,6 +1361,38 @@ LIMIT :limit
         limit: Int
     ): List<PlusLiteIdRow>
 
+    @Query("""
+SELECT itemId, countryId, timestamp
+FROM quantity_log
+WHERE itemId = :itemId
+  AND delta > 0
+  AND timestamp BETWEEN :from AND :to
+  AND (:countryId IS NULL OR countryId = :countryId)
+ORDER BY timestamp ASC
+LIMIT :limit
+""")
+    suspend fun getPlusLogsByItemAscInPeriod(
+        itemId: Long,
+        from: Long,
+        to: Long,
+        countryId: Long?,
+        limit: Int
+    ): List<PlusLiteIdRow>  // 네가 쓰는 Lite 타입으로 맞추기
+
+    @Query("""
+SELECT itemId, countryId, timestamp
+FROM quantity_log
+WHERE delta > 0
+  AND timestamp BETWEEN :from AND :to
+ORDER BY timestamp ASC
+LIMIT :limit
+""")
+    suspend fun getPlusLogsAscInPeriod(
+        from: Long,
+        to: Long,
+        limit: Int
+    ): List<PlusLiteIdRow>
+
     data class CountryWeightRow(
         val country: String,
         val weight: Float
@@ -1357,4 +1422,164 @@ WHERE item = :itemName
             val label: String
         ) : ItemReportUi()
     }
+
+    // 일자별(하루) 합계용
+    data class ReportDayAggRow(
+        val dayIndexKst: Long,      // KST 기준 day index
+        val totalKg: Double,
+        val itemKg: Double,
+        val wasteKg: Double,
+        val totalPrice: Long
+    )
+
+    // 아이템별 합계용
+    data class ReportItemAggRow(
+        val itemId: Long,
+        val item: String,
+        val totalDelta: Int,
+        val totalKg: Double,
+        val totalPrice: Long,
+        val waste: Int              // 1이면 쓰레기
+    )
+
+    // 아이템 상세 로그용 (최근 30개, 최신순)
+    data class ReportItemLogRow(
+        val timestamp: Long,
+        val country: String,
+        val delta: Int,
+        val kg: Double,             // delta * weightAt
+        val speedKgPerHour: Double, // 계산해서 내려줌 (선택)
+        val tookMs: Long            // 걸린시간(근무시간 기준) - 서비스에서 계산 권장
+    )
+
+    @Query("""
+SELECT
+  ((q.timestamp + 32400000) / 86400000) AS dayIndexKst,
+
+  -- 전체 kg
+  SUM( (q.delta * COALESCE(q.weightAt, 0)) ) AS totalKg,
+
+  -- 아이템 kg (쓰레기 제외)
+  SUM( CASE WHEN COALESCE(q.itemName,'') = '쓰레기'
+            THEN 0
+            ELSE (q.delta * COALESCE(q.weightAt, 0))
+      END
+  ) AS itemKg,
+
+  -- 쓰레기 kg
+  SUM( CASE WHEN COALESCE(q.itemName,'') = '쓰레기'
+            THEN (q.delta * COALESCE(q.weightAt, 0))
+            ELSE 0
+      END
+  ) AS wasteKg,
+
+  -- 전체 가격
+  SUM( (q.delta * COALESCE(q.priceAt, 0)) ) AS totalPrice
+
+FROM quantity_log q
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+
+GROUP BY dayIndexKst
+ORDER BY dayIndexKst DESC
+""")
+    suspend fun reportAggByDay(from: Long, to: Long): List<ReportDayAggRow>
+
+    @Query("""
+SELECT
+  q.itemId AS itemId,
+  COALESCE(q.itemName, '') AS item,
+  SUM(q.delta) AS totalDelta,
+  SUM(q.delta * COALESCE(q.weightAt, 0)) AS totalKg,
+  SUM(q.delta * COALESCE(q.priceAt, 0)) AS totalPrice,
+  CASE WHEN COALESCE(q.itemName,'') = '쓰레기' THEN 1 ELSE 0 END AS waste
+
+FROM quantity_log q
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+
+GROUP BY q.itemId, q.itemName
+ORDER BY totalKg DESC
+""")
+    suspend fun reportAggByItem(from: Long, to: Long): List<ReportItemAggRow>
+
+    @Query("""
+SELECT
+  q.itemId AS itemId,
+  COALESCE(NULLIF(q.itemName, ''), i.name, '(deleted)') AS item,
+  SUM(q.delta) AS totalDelta,
+  SUM(q.delta * COALESCE(q.weightAt, 0)) AS totalKg,
+  SUM(q.delta * COALESCE(q.priceAt, 0)) AS totalPrice,
+  CASE WHEN COALESCE(NULLIF(q.itemName,''), i.name, '') = '쓰레기' THEN 1 ELSE 0 END AS waste
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+  AND (:countryId IS NULL OR q.countryId = :countryId)
+GROUP BY q.itemId
+ORDER BY totalKg DESC
+""")
+    suspend fun reportAggByItemInPeriod(
+        from: Long,
+        to: Long,
+        countryId: Long?
+    ): List<ReportItemAggRow>
+
+    @Query("""
+UPDATE quantity_log
+SET itemName = (SELECT name FROM items WHERE id = quantity_log.itemId)
+WHERE itemName IS NULL OR itemName = ''
+""")
+    suspend fun backfillLogItemNames(): Int
+
+
+    @Query("""
+SELECT
+  q.timestamp AS timestamp,
+  COALESCE(q.countryName, '') AS country,
+  q.delta AS delta,
+  (q.delta * COALESCE(q.weightAt, 0)) AS kg,
+
+  0.0 AS speedKgPerHour,
+  0   AS tookMs
+
+FROM quantity_log q
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.itemId = :itemId
+  AND q.timestamp BETWEEN :from AND :to
+
+ORDER BY q.timestamp DESC
+""")
+    suspend fun reportItemLogs(
+        itemId: Long,
+        from: Long,
+        to: Long
+    ): List<ReportItemLogRow>
+
+    @Query("""
+SELECT
+  q.timestamp AS timestamp,
+  COALESCE(q.countryName,'') AS country,
+  q.delta AS delta,
+  (q.delta * COALESCE(q.weightAt,0)) AS kg,
+  0.0 AS speedKgPerHour,
+  0 AS tookMs
+FROM quantity_log q
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.itemId = :itemId
+  AND q.timestamp BETWEEN :from AND :to
+  AND (:countryId IS NULL OR q.countryId = :countryId)
+ORDER BY q.timestamp DESC
+""")
+    suspend fun reportItemLogsInPeriod(
+        itemId: Long,
+        from: Long,
+        to: Long,
+        countryId: Long?
+    ): List<ReportItemLogRow>
 }

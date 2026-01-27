@@ -862,8 +862,11 @@ class ItemCountryRepository(
 
     suspend fun buildItemReport(
         itemId: Long,
+        from: Long,
+        to: Long,
+        countryId: Long?,
         logLimit: Int = 5000,
-        showLogs: Int = 30,
+        showLogs: Int = 100,
         predCount: Int = 5
     ): ItemCountryDao.ItemReport {
         val now = System.currentTimeMillis()
@@ -874,7 +877,13 @@ class ItemCountryRepository(
         val itemName = itemNameMap[itemId] ?: (dao.getItemNameById(itemId) ?: "Item")
 
         // 2) 해당 item의 +로그(ASC)
-        val rows = dao.getRecentPlusLogLiteIdsByItemAsc(itemId, logLimit)
+        val rows = dao.getPlusLogsByItemAscInPeriod(
+            itemId = itemId,
+            from = from,
+            to = to,
+            countryId = countryId,
+            limit = logLimit
+        )
         if (rows.size < 2) {
             return ItemCountryDao.ItemReport(
                 itemId = itemId,
@@ -975,19 +984,39 @@ class ItemCountryRepository(
             curr to gap
         }.takeLast(showLogs).asReversed()
 
-        val logUi = pairs.map { (curr, gap) ->
-            val country = countryNameMap[curr.countryId] ?: "?"
-            val w = weightByCountry[country] // kg
-            val speed = if (w != null && gap > 0L) w / (gap.toDouble() / HOUR_MS.toDouble()) else null
+        val logUi = buildList<ItemCountryDao.ItemReport.LogRow> {
+            // 0번째는 gap 계산 불가 -> null/0 처리
+            val first = rows.first()
+            val c0 = countryNameMap[first.countryId] ?: "?"
+            val w0 = weightByCountry[c0]
+            add(ItemCountryDao.ItemReport.LogRow(
+                ts = first.timestamp,
+                country = c0,
+                weightKg = w0,
+                speedKgPerHour = null,
+                workGapMs = 0L // 또는 -1L 같은 sentinel
+            ))
 
-            ItemCountryDao.ItemReport.LogRow(
-                ts = curr.timestamp,
-                country = country,
-                weightKg = w,
-                speedKgPerHour = speed,
-                workGapMs = gap
-            )
+            // 나머지는 기존대로
+            for (i in 1 until rows.size) {
+                val curr = rows[i]
+                val gap = workGaps[i - 1]
+                val country = countryNameMap[curr.countryId] ?: "?"
+                val w = weightByCountry[country]
+                val speed = if (w != null && gap > 0L) w / (gap.toDouble() / HOUR_MS) else null
+
+                add(ItemCountryDao.ItemReport.LogRow(
+                    ts = curr.timestamp,
+                    country = country,
+                    weightKg = w,
+                    speedKgPerHour = speed,
+                    workGapMs = gap
+                ))
+            }
         }
+
+// ✅ showLogs 적용은 마지막에
+        val sliced = logUi.takeLast(showLogs).asReversed()
 
         // 7) 요약(kg/h, 평균 gap)
         val valid = logUi.filter { it.weightKg != null && it.workGapMs > 0L }

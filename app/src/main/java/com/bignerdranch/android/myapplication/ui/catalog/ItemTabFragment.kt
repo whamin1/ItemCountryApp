@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
@@ -71,6 +72,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         val searchItem = tb.menu.findItem(R.id.action_search)
         val searchView = searchItem.actionView as androidx.appcompat.widget.SearchView
 
+
         searchView.queryHint = "아이템/나라 검색"
 
         searchView.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
@@ -123,6 +125,10 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                     bulkBaseDayMillis = null
                     toolbar?.subtitle = "전체 기간"
                     Toast.makeText(requireContext(), "연속 입력 OFF", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                R.id.action_production_report -> {
+                    findNavController().navigate(R.id.reportEntryFragment)
                     true
                 }
                 else -> false
@@ -373,7 +379,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                     val wasBulk = bulkMode && bulkBaseDayMillis != null
                     val prevMinute = if (wasBulk) bulkNextMinute else null
 
-                    val newId = dao.insertQuantityLog(
+                    val newId = dao.insertQuantityLogWithSnapshot(
                         QuantityLogEntity(
                             itemId = itemId,
                             countryId = countryId,
@@ -559,6 +565,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                     val latest = dao.getLatestToHave(newItemId, newCountryId) ?: 0
                     val from = latest
                     val to = from + newDelta
+                    val snap = dao.getSnapshot(newItemId, newCountryId)
 
                     dao.updateQuantityLog(
                         entity.copy(
@@ -568,10 +575,10 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                             delta = newDelta,
                             fromHave = from,
                             toHave = to,
-                            itemName = pickedItemName,
-                            countryName = pickedCountryName,
-                            weightAt = newWeightAt,
-                            priceAt = newPriceAt
+                            itemName = snap?.itemName ?: pickedItemName,
+                            countryName = snap?.countryName ?: pickedCountryName,
+                            weightAt = snap?.weightAt,
+                            priceAt = snap?.priceAt
                         )
                     )
 
@@ -652,7 +659,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
             val from = dao.getLatestToHave(itemId, countryId) ?: 0
             val to = from + delta
 
-            dao.insertQuantityLog(
+            dao.insertQuantityLogWithSnapshot(
                 QuantityLogEntity(
                     itemId = itemId,
                     countryId = countryId,
