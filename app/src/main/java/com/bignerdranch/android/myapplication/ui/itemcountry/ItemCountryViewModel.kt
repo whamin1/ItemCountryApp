@@ -383,4 +383,8 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         _reportRange.value = range
     }
 
+    suspend fun fixWasteWeightAtInPeriod(from: Long, to: Long): Int {
+        return repo.fixWasteWeightAtInPeriod(from, to)
+    }
+
 }

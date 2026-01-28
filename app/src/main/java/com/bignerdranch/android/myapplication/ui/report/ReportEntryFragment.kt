@@ -2,6 +2,7 @@ package com.bignerdranch.android.myapplication.ui.report
 
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.TextView
 import androidx.annotation.RequiresApi
@@ -22,6 +23,7 @@ import com.google.android.material.datepicker.MaterialDatePicker
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -88,7 +90,8 @@ class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
                         val today = todayRangeKst()
                         chipToday.isChecked = (p.from == today.from && p.to == today.to)
 
-                        // ✅ 데이터 갱신
+                        vm.fixWasteWeightAtInPeriod(p.from, p.to)
+
                         val rows = dao.reportAggByDay(p.from, p.to)
                         adapter.submit(rows)
                         renderSummary(rows)
@@ -132,17 +135,33 @@ class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
 
         val days = dayRows.size
         val totalKg = dayRows.sumOf { it.totalKg }
-        val itemKg  = dayRows.sumOf { it.itemKg }
+        val itemKg = dayRows.sumOf { it.itemKg }
         val wasteKg = dayRows.sumOf { it.wasteKg }
         val totalPrice = dayRows.sumOf { it.totalPrice }
 
-        fun kg(x: Double) = String.format(Locale.KOREA, "%.2f kg", x)
-        fun money(x: Long) = java.text.NumberFormat.getInstance(Locale.KOREA).format(x)
+        val kgFormat = NumberFormat.getNumberInstance(Locale.KOREA).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
+        }
+        val priceFormat = NumberFormat.getNumberInstance(Locale.KOREA)
+
+        fun kg(x: Double) = "${kgFormat.format(x)} kg"
+        fun money(x: Long) = priceFormat.format(x)
+        fun ratio(x: Double) =
+            if (totalKg > 0) String.format(Locale.KOREA, "%.1f%%", (x / totalKg) * 100)
+            else "-"
 
         v.findViewById<TextView>(R.id.tvSummaryDays).text = "총 ${days}일"
-        v.findViewById<TextView>(R.id.tvSummaryKgTotal).text = "총 무게: ${kg(totalKg)}"
-        v.findViewById<TextView>(R.id.tvSummaryKgItem).text = "아이템: ${kg(itemKg)}"
-        v.findViewById<TextView>(R.id.tvSummaryKgWaste).text = "쓰레기: ${kg(wasteKg)}"
-        v.findViewById<TextView>(R.id.tvSummaryPrice).text = "총 가격: ${money(totalPrice)}"
+        v.findViewById<TextView>(R.id.tvSummaryKgTotal).text =
+            "총 무게: ${kg(totalKg)}"
+
+        v.findViewById<TextView>(R.id.tvSummaryKgItem).text =
+            "아이템: ${kg(itemKg)} (${ratio(itemKg)})"
+
+        v.findViewById<TextView>(R.id.tvSummaryKgWaste).text =
+            "쓰레기: ${kg(wasteKg)} (${ratio(wasteKg)})"
+
+        v.findViewById<TextView>(R.id.tvSummaryPrice).text =
+            "총 가격: ${money(totalPrice)}"
     }
 }

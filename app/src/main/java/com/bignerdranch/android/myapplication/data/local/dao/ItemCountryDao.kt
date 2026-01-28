@@ -1456,35 +1456,57 @@ WHERE item = :itemName
 SELECT
   ((q.timestamp + 32400000) / 86400000) AS dayIndexKst,
 
-  -- 전체 kg
-  SUM( (q.delta * COALESCE(q.weightAt, 0)) ) AS totalKg,
+  SUM(q.delta * COALESCE(q.weightAt, 0)) AS totalKg,
 
-  -- 아이템 kg (쓰레기 제외)
-  SUM( CASE WHEN COALESCE(q.itemName,'') = '쓰레기'
-            THEN 0
-            ELSE (q.delta * COALESCE(q.weightAt, 0))
-      END
-  ) AS itemKg,
+  SUM(CASE WHEN TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) = '쓰레기'
+           THEN 0
+           ELSE (q.delta * COALESCE(q.weightAt, 0))
+      END) AS itemKg,
 
-  -- 쓰레기 kg
-  SUM( CASE WHEN COALESCE(q.itemName,'') = '쓰레기'
-            THEN (q.delta * COALESCE(q.weightAt, 0))
-            ELSE 0
-      END
-  ) AS wasteKg,
+  SUM(CASE WHEN TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) = '쓰레기'
+           THEN (q.delta * COALESCE(q.weightAt, 0))
+           ELSE 0
+      END) AS wasteKg,
 
-  -- 전체 가격
-  SUM( (q.delta * COALESCE(q.priceAt, 0)) ) AS totalPrice
-
+  SUM(q.delta * COALESCE(q.priceAt, 0)) AS totalPrice
 FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
 WHERE q.delta > 0
   AND q.archived = 0
   AND q.timestamp BETWEEN :from AND :to
-
 GROUP BY dayIndexKst
 ORDER BY dayIndexKst DESC
 """)
     suspend fun reportAggByDay(from: Long, to: Long): List<ReportDayAggRow>
+
+    @Query("""
+SELECT COUNT(*)
+FROM quantity_log
+WHERE delta > 0 AND archived = 0
+  AND timestamp BETWEEN :from AND :to
+  AND TRIM(COALESCE(itemName,'')) = '쓰레기'
+  AND (weightAt IS NULL OR weightAt = 0)
+""")
+    suspend fun countWasteMissingWeightAt(from: Long, to: Long): Int
+    @Query("""
+UPDATE quantity_log
+SET weightAt = COALESCE(weightAt, (
+  SELECT sl.weight
+  FROM sheet_lines sl
+  WHERE sl.item = '쓰레기'
+    AND sl.weight > 0
+    AND sl.isDeleted = 0
+    AND sl.hidden = 0
+  ORDER BY sl.createdAt DESC, sl.id DESC
+  LIMIT 1
+))
+WHERE delta > 0
+  AND archived = 0
+  AND timestamp BETWEEN :from AND :to
+  AND TRIM(COALESCE(itemName,'')) = '쓰레기'
+  AND (weightAt IS NULL OR weightAt = 0)
+""")
+    suspend fun fixWasteWeightAtInPeriod(from: Long, to: Long): Int
 
     @Query("""
 SELECT

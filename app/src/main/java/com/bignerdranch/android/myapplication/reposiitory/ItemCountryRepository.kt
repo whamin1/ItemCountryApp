@@ -490,6 +490,9 @@ class ItemCountryRepository(
     suspend fun getItemNameById(itemId: Long): String? {
         return dao.getItemNameById(itemId)
     }
+    suspend fun fixWasteWeightAtInPeriod(from: Long, to: Long): Int {
+        return dao.fixWasteWeightAtInPeriod(from, to)
+    }
 
 
     private val KST = ZoneId.of("Asia/Seoul")
