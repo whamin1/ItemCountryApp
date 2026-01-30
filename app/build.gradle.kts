@@ -60,4 +60,5 @@ dependencies {
     implementation("com.google.android.material:material:1.13.0")
     implementation("androidx.navigation:navigation-fragment-ktx:2.9.4")
     implementation("androidx.navigation:navigation-ui-ktx:2.9.4")
+    implementation("androidx.datastore:datastore-preferences:1.2.0")
 }

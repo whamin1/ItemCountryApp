@@ -16,6 +16,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -34,6 +36,8 @@ class ItemCountryRepository(
 ) {
 
     private val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+
+    private val reportPrefs = ReportPrefRepository(appContext)
 
     private fun setActiveSheetId(id: Long) {
         prefs.edit().putLong("active_sheet_id", id).apply()
@@ -492,6 +496,13 @@ class ItemCountryRepository(
     }
     suspend fun fixWasteWeightAtInPeriod(from: Long, to: Long): Int {
         return dao.fixWasteWeightAtInPeriod(from, to)
+    }
+
+    private val _selectedItemNames = MutableStateFlow<Set<String>>(emptySet())
+    val selectedItemNames = _selectedItemNames.asStateFlow()
+
+    suspend fun loadSelectedItemNames() {
+        _selectedItemNames.value = reportPrefs.selectedItemNamesFlow.first()
     }
 
 

@@ -52,10 +52,6 @@ class ReportItemAggAdapter(
 
         fun bind(row: ItemCountryDao.ReportItemAggRow, totalKgAll: Double) {
 
-            Log.d(
-                "REPORT_ITEM",
-                "itemId=${row.itemId}, item='${row.item}', kg=${row.totalKg}, cnt=${row.totalDelta}"
-            )
             tvItem.text = row.item.ifBlank { "(unknown)" }
             tvCount.text = "갯수: ${nf.format(row.totalDelta)}"
             tvKg.text = String.format(Locale.KOREA, "무게: %.2f kg", row.totalKg)

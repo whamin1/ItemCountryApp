@@ -1,16 +1,44 @@
 package com.bignerdranch.android.myapplication.ui.report
 
+import android.app.Application
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.bignerdranch.android.myapplication.repository.ReportPrefRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.time.*
-import java.util.*
 
 data class ReportPeriod(val from: Long, val to: Long)
 
-class ReportViewModel : ViewModel() {
+class ReportViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val prefRepo = ReportPrefRepository(app.applicationContext)
+
+    private val _selectedItemNames = MutableStateFlow<Set<String>>(emptySet())
+    val selectedItemNames = _selectedItemNames.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _selectedItemNames.value = prefRepo.selectedItemNamesFlow.first()
+        }
+    }
+
+    fun setSelectedItemNames(names: Set<String>) {
+        _selectedItemNames.value = names
+        viewModelScope.launch { prefRepo.saveSelectedItemNames(names) }
+    }
+
+    fun clearSelectedItemNames() {
+        _selectedItemNames.value = emptySet()
+        viewModelScope.launch { prefRepo.clearSelectedItemNames() }
+    }
+
     @RequiresApi(Build.VERSION_CODES.O)
     private val kst: ZoneId = ZoneId.of("Asia/Seoul")
 

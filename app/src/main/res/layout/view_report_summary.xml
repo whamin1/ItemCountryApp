@@ -37,6 +37,18 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="쓰레기: 0.00 kg" />
+        <TextView
+            android:id="@+id/tvSummarySelectedRows"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/tvSummarySelected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="선택 아이템: -"
+            android:visibility="gone"/>
 
         <TextView
             android:id="@+id/tvSummaryPrice"

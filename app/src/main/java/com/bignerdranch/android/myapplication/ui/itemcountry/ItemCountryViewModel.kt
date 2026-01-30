@@ -12,6 +12,7 @@ import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineE
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
+import com.bignerdranch.android.myapplication.repository.ReportPrefRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -387,4 +388,21 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         return repo.fixWasteWeightAtInPeriod(from, to)
     }
 
+    // ItemCountryViewModel 안에 추가
+    val reportSelectedItemNames: StateFlow<Set<String>> =
+        repo.selectedItemNames
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    private val reportPrefRepo = ReportPrefRepository(app.applicationContext)
+
+    private val _reportSelectedItemNames = MutableStateFlow<Set<String>>(emptySet())
+
+
+    fun loadReportSelectedItemNames() {
+        viewModelScope.launch {
+            reportPrefRepo.selectedItemNamesFlow.collect { names ->
+                _reportSelectedItemNames.value = names
+            }
+        }
+    }
 }

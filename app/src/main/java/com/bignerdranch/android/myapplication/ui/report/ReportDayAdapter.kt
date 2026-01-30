@@ -53,8 +53,30 @@ class ReportDayAdapter(
         fun bind(row: ItemCountryDao.ReportDayAggRow) {
             val dayStartMs = dayIndexKstToStartMs(row.dayIndexKst)
             tvDate.text = fmt.format(Date(dayStartMs))
-            tvKg.text = String.format(Locale.KOREA, "%.2f kg", row.totalKg)
-            tvPrice.text = String.format(Locale.KOREA, "%,d", row.totalPrice)
+            val excludedKg = (row.itemKg - row.selKg).coerceAtLeast(0.0)
+
+            tvKg.text =
+                if (row.selKg > 0.0) {
+                    String.format(
+                        Locale.KOREA,
+                        "%.2f = %.2f + %.2f + %.2f (kg)",
+                        row.totalKg, excludedKg, row.selKg, row.wasteKg
+                    )
+                } else {
+                    String.format(
+                        Locale.KOREA,
+                        "총 %.2f = 아이템 %.2f + 쓰레기 %.2f (kg)",
+                        row.totalKg, row.itemKg, row.wasteKg
+                    )
+                }
+
+
+            tvPrice.text = buildString {
+                append(String.format(Locale.KOREA, "총 %,d", row.totalPrice))
+                if (row.selPrice > 0L) {
+                    append(String.format(Locale.KOREA, " (%,d)", row.selPrice))
+                }
+            }
 
             itemView.setOnClickListener { onClick(row) }
         }

@@ -6,6 +6,9 @@ import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.TextView
 import androidx.annotation.RequiresApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
@@ -23,6 +26,7 @@ import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -37,7 +41,7 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
 
     private lateinit var adapter: ReportItemAggAdapter
     private val fmt = SimpleDateFormat("yyyy.MM.dd", Locale.KOREA)
-
+    private val periodLocal = MutableStateFlow<ReportPeriod?>(null)
     @RequiresApi(Build.VERSION_CODES.O)
     private val KST = ZoneId.of("Asia/Seoul")
 
@@ -57,6 +61,14 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
         val tvPeriod = view.findViewById<TextView>(R.id.tvPeriod)
         val chipToday = view.findViewById<Chip>(R.id.chipToday)
 
+        val argFrom = arguments?.getLong("from", -1L) ?: -1L
+        val argTo   = arguments?.getLong("to", -1L) ?: -1L
+
+        periodLocal.value =
+            if (argFrom > 0 && argTo > 0) ReportPeriod(argFrom, argTo)   // ✅ 어댑터 클릭: 그날 하루
+            else reportVm.period.value                                    // ✅ 자세히 보기: A에서 설정한 기간
+
+
         // Recycler
         val recycler = view.findViewById<RecyclerView>(R.id.recycler)
         recycler.layoutManager = LinearLayoutManager(requireContext())
@@ -65,14 +77,20 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
                 // 다음 단계(C): 아이템 상세로 이동할 때 여기서 selectedItemId 넣고 navigate
                 reportVm.selectedItemId.value = row.itemId
 
-                findNavController().navigate(R.id.action_reportItemsFragment_to_reportItemDetailFragment)
+                val p = periodLocal.value ?: reportVm.period.value
+                val args = Bundle().apply {
+                    putLong("from", p.from)
+                    putLong("to", p.to)
+                }
+
+                findNavController().navigate(R.id.action_reportItemsFragment_to_reportItemDetailFragment, args)
             }
         )
         recycler.adapter = adapter
 
         // 오늘 칩
         chipToday.setOnClickListener {
-            reportVm.toggleToday(todayRangeKst())
+            periodLocal.value = todayRangeKst()
         }
 
         // 기간 클릭 -> DateRangePicker (KST 보정 적용)
@@ -91,7 +109,7 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
                 val to = Instant.ofEpochMilli(second).atZone(KST).toLocalDate()
                     .plusDays(1).atStartOfDay(KST).toInstant().toEpochMilli() - 1
 
-                reportVm.setPeriod(from, to)
+                periodLocal.value = ReportPeriod(from, to)
             }
 
             picker.show(parentFragmentManager, "report_items_range")
@@ -103,20 +121,19 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
 
                 // 1) 기간 바뀔 때마다 헤더 + 드롭다운 목록 갱신
                 launch {
-                    reportVm.period.collectLatest { p ->
+                    periodLocal.collectLatest { p0 ->
+                        val p = p0 ?: return@collectLatest
+
                         tvPeriod.text = "${fmt.format(Date(p.from))} ~ ${fmt.format(Date(p.to))}"
                         val today = todayRangeKst()
                         chipToday.isChecked = (p.from == today.from && p.to == today.to)
 
-                        // 국가 목록(기간 내 등장한 국가들)
                         val countries = dao.reportCountriesInPeriod(p.from, p.to)
-                        val names = mutableListOf("All")
-                        names.addAll(countries.map { it.name })
+                        val names = mutableListOf("All").apply { addAll(countries.map { it.name }) }
 
                         val ad = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, names)
                         actCountry.setAdapter(ad)
 
-                        // 기본 선택: All (처음 진입 때만)
                         if (actCountry.text.isNullOrBlank()) {
                             actCountry.setText("All", false)
                             reportVm.selectedCountryId.value = null
@@ -126,7 +143,10 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
 
                 // 2) (기간 + 선택 국가) 바뀌면 아이템 집계 갱신
                 launch {
-                    combine(reportVm.period, reportVm.selectedCountryId) { p, countryId -> p to countryId }
+                    combine(
+                        periodLocal.filterNotNull(),
+                        reportVm.selectedCountryId
+                    ) { p, countryId -> p to countryId }
                         .collectLatest { (p, countryId) ->
                             val rows = dao.reportAggByItemInPeriod(p.from, p.to, countryId)
                             adapter.submit(rows)
@@ -143,7 +163,7 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
             } else {
                 // name -> id 매핑(기간 내 목록 기반이므로 안전)
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val p = reportVm.period.value
+                    val p = periodLocal.value ?: return@launch
                     val countries = dao.reportCountriesInPeriod(p.from, p.to)
                     val id = countries.firstOrNull { it.name == picked }?.id
                     reportVm.selectedCountryId.value = id

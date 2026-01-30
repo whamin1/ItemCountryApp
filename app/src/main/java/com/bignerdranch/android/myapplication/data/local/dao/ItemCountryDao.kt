@@ -1429,7 +1429,13 @@ WHERE item = :itemName
         val totalKg: Double,
         val itemKg: Double,
         val wasteKg: Double,
-        val totalPrice: Long
+        val totalPrice: Long,
+        val totalCnt: Int,
+        val itemCnt: Int,
+        val wasteCnt: Int,
+        val selKg: Double = 0.0,
+        val selCnt: Int = 0,
+        val selPrice: Long = 0
     )
 
     // 아이템별 합계용
@@ -1467,8 +1473,15 @@ SELECT
            THEN (q.delta * COALESCE(q.weightAt, 0))
            ELSE 0
       END) AS wasteKg,
+      SUM(q.delta) AS totalCnt,
+SUM(CASE WHEN TRIM(COALESCE(q.itemName,''))='쓰레기' THEN 0 ELSE q.delta END) AS itemCnt,
+SUM(CASE WHEN TRIM(COALESCE(q.itemName,''))='쓰레기' THEN q.delta ELSE 0 END) AS wasteCnt,
 
-  SUM(q.delta * COALESCE(q.priceAt, 0)) AS totalPrice
+  SUM(q.delta * COALESCE(q.priceAt, 0)) AS totalPrice,
+  0.0 AS selKg,
+0   AS selCnt,
+0   AS selPrice
+  
 FROM quantity_log q
 LEFT JOIN items i ON i.id = q.itemId
 WHERE q.delta > 0
@@ -1604,4 +1617,123 @@ ORDER BY q.timestamp DESC
         to: Long,
         countryId: Long?
     ): List<ReportItemLogRow>
+
+    data class SelectedAgg(
+        val selKg: Double,
+        val selCnt: Int,
+        val selPrice: Long
+    )
+
+    @Query("""
+SELECT
+  COALESCE(SUM(q.delta * COALESCE(q.weightAt,0)), 0) AS selKg,
+  COALESCE(SUM(q.delta), 0) AS selCnt,
+  COALESCE(SUM(q.delta * COALESCE(q.priceAt,0)), 0) AS selPrice
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+  AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) IN (:itemNames)
+  AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) != '쓰레기'
+""")
+    suspend fun reportSelectedAggByItemNames(
+        from: Long,
+        to: Long,
+        itemNames: List<String>
+    ): SelectedAgg
+
+    data class SelectedItemAggRow(
+        val item: String,
+        val cnt: Int,
+        val kg: Double,
+        val price: Long
+    )
+
+    @Query("""
+SELECT
+  COALESCE(NULLIF(q.itemName,''), i.name, '(deleted)') AS item,
+  SUM(q.delta) AS cnt,
+  SUM(q.delta * COALESCE(q.weightAt, 0)) AS kg,
+  SUM(q.delta * COALESCE(q.priceAt, 0)) AS price
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+  AND COALESCE(NULLIF(q.itemName,''), i.name, '') IN (:itemNames)
+GROUP BY item
+ORDER BY kg DESC
+LIMIT :limit
+""")
+    suspend fun reportAggForSelectedItems(
+        from: Long,
+        to: Long,
+        itemNames: List<String>,
+        limit: Int = 10
+    ): List<SelectedItemAggRow>
+
+    @Query("""
+SELECT DISTINCT COALESCE(NULLIF(q.itemName,''), i.name, '(deleted)') AS item
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+  AND COALESCE(NULLIF(q.itemName,''), i.name, '') != '쓰레기'
+ORDER BY item COLLATE NOCASE
+""")
+    suspend fun reportDistinctItemsInPeriod(from: Long, to: Long): List<String>
+
+    data class DaySelAgg(
+        val dayIndexKst: Long,
+        val kg: Double,
+        val cnt: Int,
+        val price: Long
+    )
+
+    @Query("""
+SELECT
+((q.timestamp + 32400000) / 86400000) AS dayIndexKst,
+
+COALESCE(SUM(
+CASE
+WHEN TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) IN (:itemNames)
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) != '쓰레기'
+THEN (q.delta * COALESCE(q.weightAt, 0))
+ELSE 0
+END
+), 0) AS kg,
+
+COALESCE(SUM(
+CASE
+WHEN TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) IN (:itemNames)
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) != '쓰레기'
+THEN q.delta
+ELSE 0
+END
+), 0) AS cnt,
+
+COALESCE(SUM(
+CASE
+WHEN TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) IN (:itemNames)
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) != '쓰레기'
+THEN (q.delta * COALESCE(q.priceAt, 0))
+ELSE 0
+END
+), 0) AS price
+
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+WHERE q.delta > 0
+AND q.archived = 0
+AND q.timestamp BETWEEN :from AND :to
+GROUP BY dayIndexKst
+ORDER BY dayIndexKst DESC
+""")
+    suspend fun reportSelectedAggByDay(
+        from: Long,
+        to: Long,
+        itemNames: List<String>
+    ): List<DaySelAgg>
 }
