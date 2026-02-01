@@ -2,6 +2,7 @@ package com.bignerdranch.android.myapplication.repository
 
 import android.content.Context
 import android.util.Log
+import androidx.room.Transaction
 import androidx.room.withTransaction
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
@@ -36,8 +37,6 @@ class ItemCountryRepository(
 ) {
 
     private val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-
-    private val reportPrefs = ReportPrefRepository(appContext)
 
     private fun setActiveSheetId(id: Long) {
         prefs.edit().putLong("active_sheet_id", id).apply()
@@ -244,9 +243,6 @@ class ItemCountryRepository(
         if (lines.isNotEmpty()) {
             val withId = lines.map { it.copy(sheetId = sheetId) }
             sheetDao.insertSheetLines(withId)
-            val cnt = sheetDao.countLinesBySheetId(sheetId) // 혹은 countOrphans()로도 확인 가능
-            val orphans = sheetDao.countOrphans()
-            Log.d("SheetsDebug", "inserted=${withId.size}, countForSheet=$cnt, orphans=$orphans sheetId=$sheetId")
         }
         return sheetId
     }
@@ -279,7 +275,6 @@ class ItemCountryRepository(
                     dao.deleteLinkByIds(itemId, countryId)
                 }
             }
-            Log.d("SheetsDebug", "시트 ${sheet.title} 비활성화됨 → 아이템 삭제 완료")
             return
         }
 
@@ -300,6 +295,8 @@ class ItemCountryRepository(
     fun observeSheetsWithLines(): Flow<List<ItemCountryDao.SheetWithLines>> = sheetDao.observeSheetsWithLines()
 
     fun observeSheetLines(sheetId: Long) = dao.observeSheetLines(sheetId)
+
+    suspend fun getMaxSortOrder(sheetId: Long) = dao.getMaxSortOrder(sheetId)
 
     suspend fun updateSheetLine(line: SheetLineEntity) = dao.updateSheetLine(line)
 
@@ -350,12 +347,6 @@ class ItemCountryRepository(
     ) {
         dao.toggleCountryHidden(sheetId, country, newHidden)
         dao.setCountryHidden(country, newHidden)
-
-        // 🔥 디버그 로그
-        val all = dao.debugCountries()
-        all.forEach {
-            Log.d("DBG_COUNTRY", "name=${it.name}, hidden=${it.hidden}")
-        }
     }
     suspend fun renameSheet(sheetId: Long, title: String) {
         sheetDao.updateSheetTitle(sheetId, title)
@@ -501,8 +492,31 @@ class ItemCountryRepository(
     private val _selectedItemNames = MutableStateFlow<Set<String>>(emptySet())
     val selectedItemNames = _selectedItemNames.asStateFlow()
 
-    suspend fun loadSelectedItemNames() {
-        _selectedItemNames.value = reportPrefs.selectedItemNamesFlow.first()
+    suspend fun toggleEnabled(item: String, country: String, enabled: Boolean) {
+        return dao.setItemCountryEnabled(item, country, enabled)
+    }
+
+    suspend fun saveLineOrder(lines: List<SheetLineEntity>) {
+        val orders = lines.mapIndexed { idx, ln -> ItemCountryDao.IdOrder(ln.id, idx) }
+        return dao.updateLineOrders(orders)
+    }
+
+    fun observeActiveLinesUi(sheetId: Long) =
+        dao.observeActiveLinesUi(sheetId)
+
+    suspend fun setEnabled(item: String, country: String, enabled: Boolean) {
+        dao.setItemCountryEnabled(item, country, enabled)
+    }
+
+    suspend fun updateLineOrders(list: List<ItemCountryDao.IdOrder>) {
+        dao.updateLineOrders(list)
+    }
+
+    @Transaction
+    suspend fun restoreLineToBottom(lineId: Long) {
+        val sheetId = dao.getSheetIdByLineId(lineId) // 없으면 추가 필요
+        val newOrder = dao.getMaxSortOrder(sheetId) + 1
+        dao.restoreLineToOrder(lineId, newOrder)
     }
 
 
@@ -725,7 +739,6 @@ class ItemCountryRepository(
             var anyFuture = false
             var count = 0
             var k = 1L
-            Log.d("PRED_MED", "item=$itemId name=$name samples=${recent.size} medianH=${interval/HOUR_MS} gapsH=${recent.map{it/HOUR_MS}}")
 
             while (count < perItemMax) {
                 val predicted = addBusinessTime(base, interval * k)

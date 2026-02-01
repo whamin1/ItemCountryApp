@@ -318,6 +318,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             startActivity(Intent(requireContext(), AddedActivity::class.java))
         }
 
+        viewLifecycleOwner.lifecycleScope.launch {
+            itemDao.observeItemsWithOff().collect {
+                Log.d("HOME_DEBUG", "rows=${it.size}")
+            }
+        }
+
         // 6) Flow 수집 (중첩 collect 금지 → combine으로 한 번에)
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -437,7 +443,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                         val excluded = getExcludedPredIds()
                         val preview = list
                             .filter { it.itemId !in excluded }
-                            .take(6)
+                            .take(7)
 
                         renderPredictions(tvPred, preview)
                     }

@@ -8,7 +8,10 @@ import androidx.room.Index
 @Entity(
     tableName = "item_country",
     primaryKeys = ["itemId", "countryId"],
-    indices = [Index(value = ["countryId"])]
+    indices = [
+        Index(value = ["countryId"]),
+        Index(value = ["itemId"]) // ✅ 추가
+    ]
 )
 data class ItemCountryCrossRef(
     val itemId: Long = 0L,
@@ -16,7 +19,9 @@ data class ItemCountryCrossRef(
     val needed: Int = 0,
     val have: Int = 0,
     var weight: Float = 0f,
-    var price: Float = 0f,
+    var price: Int = 0,
     @ColumnInfo(name = "lastClickedAt")
-    val lastClickedAt: Long? = null
+    val lastClickedAt: Long? = null,
+    @ColumnInfo(defaultValue = "1")
+    val enabled: Int = 1
 )

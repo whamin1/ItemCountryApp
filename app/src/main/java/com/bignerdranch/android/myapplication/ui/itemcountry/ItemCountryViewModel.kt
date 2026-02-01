@@ -33,7 +33,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         combine(_sessionId.filterNotNull(), _onlySaved) { id, only ->
             id to only
         }.flatMapLatest { (id, only) ->
-            repo.observeSessionLines(id, true) // ✅ 여기!
+            repo.observeSessionLines(id, only) // ✅ 여기!
         }.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
@@ -51,6 +51,15 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     val uiStateItemQty: StateFlow<Map<String, List<ItemCountryRepository.CountryQty>>>
     val uiStateCountryQty: StateFlow<Map<String, List<ItemCountryRepository.CountryQty>>>
+
+    val homeRows: StateFlow<List<ItemCountryDao.ItemWithOff>> =
+        repo.observeItemsWithOff()
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                emptyList()
+            )
+
 
 
     init {
@@ -78,16 +87,41 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = emptyMap()
             )
-        uiStateItemQty = repo.observeAllWithQuantitiesItemMap().stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyMap()
-        )
-        uiStateCountryQty = repo.observeAllWithQuantitiesCountryMap().stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyMap()
-        )
+        uiStateItemQty = homeRows
+            .map { rows ->
+                rows.groupBy { it.item } // item 기준 헤더
+                    .mapValues { (_, list) ->
+                        list.map { r ->
+                            // ⚠️ CountryQty 생성자에 맞게 채우기
+                            ItemCountryRepository.CountryQty(
+                                name = r.country,
+                                needed = r.needed,
+                                have = r.have,
+                                // 너 CountryQty에 offHave/price/weight가 있으면 같이 넣어
+                                // offHave = r.offHave,
+                                // price = r.price,
+                                // weight = r.weight
+                            )
+                        }.sortedBy { it.name }
+                    }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+        uiStateCountryQty = homeRows
+            .map { rows ->
+                rows.groupBy { it.country } // country 기준 헤더
+                    .mapValues { (_, list) ->
+                        list.map { r ->
+                            ItemCountryRepository.CountryQty(
+                                name = r.item,
+                                needed = r.needed,
+                                have = r.have,
+                                // offHave/price/weight도 있으면 동일하게
+                            )
+                        }.sortedBy { it.name }
+                    }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
     }
 
     suspend fun seedNowIfEmpty(defaults: Map<String, List<String>>) {
@@ -191,6 +225,9 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun observeSheetLines(sheetId: Long) = repo.observeSheetLines(sheetId)
 
+    suspend fun getNextSortOrder(sheetId: Long): Int =
+        repo.getMaxSortOrder(sheetId) + 1
+
     fun updateSheetLine(line: SheetLineEntity) = viewModelScope.launch {
         repo.updateSheetLine(line)
     }
@@ -274,7 +311,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun restoreSheetLine(line: SheetLineEntity) = viewModelScope.launch {
-        repo.restoreLines(line.id)
+        repo.restoreLineToBottom(line.id)
     }
 
     fun hardDeleteSheetLine(line: SheetLineEntity) = viewModelScope.launch {
@@ -403,6 +440,24 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
             reportPrefRepo.selectedItemNamesFlow.collect { names ->
                 _reportSelectedItemNames.value = names
             }
+        }
+    }
+
+    fun observeActiveLinesUi(sheetId: Long) =
+        repo.observeActiveLinesUi(sheetId)
+
+    fun toggleEnabled(item: String, country: String, enabled: Boolean) {
+        viewModelScope.launch {
+            repo.setEnabled(item, country, enabled)
+            refreshPredictions()
+        }
+    }
+    fun saveLineOrder(lines: List<SheetLineEntity>) {
+        viewModelScope.launch {
+            val orders = lines.mapIndexed { idx, ln ->
+                ItemCountryDao.IdOrder(ln.id, idx)
+            }
+            repo.updateLineOrders(orders)
         }
     }
 }

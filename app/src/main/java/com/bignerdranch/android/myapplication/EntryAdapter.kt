@@ -99,7 +99,6 @@ class EntryAdapter(
 
     // ----- 외부에서 데이터 주입 -----
     fun submitData(map: Map<String, List<ItemCountryRepository.CountryQty>>) {
-        e("PRICECHK", "heads=${map.size}, sample=${map.entries.firstOrNull()?.value?.firstOrNull()}")
         full = map.entries.map { e ->
             e.key to e.value.map { cq -> Row(cq.name, cq.needed, cq.have, cq.price) }
         }

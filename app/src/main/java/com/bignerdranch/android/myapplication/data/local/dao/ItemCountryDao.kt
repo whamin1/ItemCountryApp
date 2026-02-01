@@ -617,8 +617,14 @@ WHERE c.name = :country
     @Query("DELETE FROM item_country WHERE itemId = :itemId AND countryId = :countryId")
     suspend fun deleteLinkByIds(itemId: Long, countryId: Long)
 
-    @Query("SELECT * FROM sheet_lines WHERE sheetId = :sheetId ORDER BY createdAt ASC")
-    fun observeSheetLines(sheetId: Long): kotlinx.coroutines.flow.Flow<List<SheetLineEntity>>
+    @Query("SELECT * FROM sheet_lines WHERE sheetId = :sheetId ORDER BY sortOrder ASC, id ASC")
+    fun observeSheetLines(sheetId: Long): Flow<List<SheetLineEntity>>
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM sheet_lines WHERE sheetId = :sheetId")
+    suspend fun getMaxSortOrder(sheetId: Long): Int
+
+    @Query("SELECT sheetId FROM sheet_lines WHERE id = :lineId")
+    suspend fun getSheetIdByLineId(lineId: Long): Long
 
     @Update
     suspend fun updateSheetLine(line: SheetLineEntity)
@@ -726,9 +732,10 @@ FROM item_country ic
 JOIN items i ON i.id = ic.itemId
 JOIN countries c ON c.id = ic.countryId
 WHERE c.hidden = 0
+AND COALESCE(ic.enabled, 1) = 1
 ORDER BY i.name, c.name
 """)
-    fun observeItemsWithOff(): kotlinx.coroutines.flow.Flow<List<ItemWithOff>>
+    fun observeItemsWithOff(): Flow<List<ItemWithOff>>
 
     // (3) OFF 모드 클릭은 로그만 남기기
 
@@ -1022,6 +1029,27 @@ s.title AS sheetTitle,
     """)
     suspend fun getRecentPlusLogLite(limit: Int = 20000): List<PlusLiteRow>
 
+    @Query("""
+UPDATE item_country
+SET enabled = :enabled
+WHERE itemId = (SELECT id FROM items WHERE name = :item)
+  AND countryId = (SELECT id FROM countries WHERE name = :country)
+""")
+    suspend fun setItemCountryEnabled(item: String, country: String, enabled: Boolean)
+
+    @Query("""
+SELECT COALESCE((
+  SELECT enabled
+  FROM item_country
+  WHERE itemId = (SELECT id FROM items WHERE name = :item)
+    AND countryId = (SELECT id FROM countries WHERE name = :country)
+  LIMIT 1
+), 1)
+""")
+    suspend fun getItemCountryEnabled(item: String, country: String): Int
+
+
+
     data class PlusLiteRow(
         val itemId: Long,
         val countryId: Long,
@@ -1113,18 +1141,6 @@ ORDER BY c.name COLLATE NOCASE
         from: Long,
         to: Long
     ): List<CountryLite>
-
-    //고아링크 제거
-    @Query("""
-DELETE FROM sheet_lines
-WHERE id = (SELECT id FROM items WHERE name = :item)
-  AND country = (SELECT id FROM countries WHERE name = :country)
-  AND NOT EXISTS (
-      SELECT 1 FROM sheet_lines
-      WHERE item = :item AND country = :country
-  )
-""")
-    suspend fun unlinkIfOrphanItemCountry(item: String, country: String)
 
     // ✅ 시트라인에 (item,country) 조합이 몇 개 남았는지
     @Query("""
@@ -1736,4 +1752,50 @@ ORDER BY dayIndexKst DESC
         to: Long,
         itemNames: List<String>
     ): List<DaySelAgg>
+
+    data class SheetLineUi(
+        @Embedded val line: SheetLineEntity,
+        val enabled: Int // 1 활성, 0 비활성
+    )
+
+    @Query("""
+SELECT l.*,
+       COALESCE(ic.enabled, 1) AS enabled
+FROM sheet_lines l
+LEFT JOIN (
+    SELECT MIN(id) AS id, name
+    FROM items
+    GROUP BY name
+) i ON i.name = l.item
+LEFT JOIN (
+    SELECT MIN(id) AS id, name
+    FROM countries
+    GROUP BY name
+) c ON c.name = l.country
+LEFT JOIN item_country ic ON ic.itemId = i.id AND ic.countryId = c.id
+WHERE l.sheetId = :sheetId
+  AND l.isDeleted = 0
+ORDER BY l.sortOrder ASC, l.id ASC
+""")
+    fun observeActiveLinesUi(sheetId: Long): Flow<List<SheetLineUi>>
+
+    data class IdOrder(val id: Long, val sortOrder: Int)
+
+    @Transaction
+    suspend fun updateLineOrders(list: List<IdOrder>) {
+        list.forEach { updateLineOrder(it.id, it.sortOrder) }
+    }
+
+    @Query("UPDATE sheet_lines SET sortOrder = :order WHERE id = :id")
+    suspend fun updateLineOrder(id: Long, order: Int)
+
+    @Query("""
+UPDATE sheet_lines
+SET isDeleted = 0,
+    deletedAt = NULL,
+    sortOrder = :newOrder
+WHERE id = :lineId
+""")
+    suspend fun restoreLineToOrder(lineId: Long, newOrder: Int)
+
 }

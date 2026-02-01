@@ -23,6 +23,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
+import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
 import com.google.android.material.appbar.MaterialToolbar
@@ -39,6 +40,9 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
     private var countryFilter: String? = null
     private val country: String by lazy { requireArguments().getString("country").orEmpty() }
     private val highlightItem: String by lazy { requireArguments().getString("highlightItem").orEmpty() }
+
+    private var cachedItems: Set<String> = emptySet()
+    private var cachedCountries: Set<String> = emptySet()
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,7 +61,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             toolbar.setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     R.id.action_copy_sheet -> {
-                        requireContext().copyToClipboard("시트 내용", buildSheetText())
+                        requireContext().copyToClipboard("시트 내용", buildSheetCopyTextForPaste())
                         true
                     }
                     R.id.action_trash -> {
@@ -91,7 +95,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                 override fun onMenuItemSelected(menuItem: MenuItem): Boolean =
                     when (menuItem.itemId) {
                         R.id.action_copy_sheet -> {
-                            requireContext().copyToClipboard("시트 내용", buildSheetText()); true
+                            requireContext().copyToClipboard("시트 내용", buildSheetCopyTextForPaste()); true
                         }
                         else -> false
                     }
@@ -103,16 +107,26 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         rv.layoutManager = LinearLayoutManager(requireContext())
         adapter = LinesAdapter(
             onEdit = { openEditDialog(it) },
-            onDelete = { confirmDeleteLine(it) }
+            onDelete = { confirmDeleteLine(it) },
+            onToggleEnabled = { line, newEnabled ->
+                vm.toggleEnabled(line.item, line.country, newEnabled)
+                Toast.makeText(
+                    requireContext(),
+                    if (newEnabled) "활성화" else "비활성화",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         )
         rv.adapter = adapter
+        attachLineReorder(sheetId)
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                vm.observeActiveLines(sheetId).collect { allLines ->
+                vm.observeActiveLinesUi(sheetId).collect { rows ->
                     val filtered = countryFilter?.let { c ->
-                    allLines.filter { it.country == c }
-                    } ?: allLines
+                        rows.filter { it.line.country == c }
+                    } ?: rows
+
                     adapter.highlightItem = highlightItem.takeIf { it.isNotBlank() }
                     adapter.submit(filtered)
 
@@ -122,8 +136,8 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                     }, 2000)
 
                     val target = highlightItem.takeIf { it.isNotBlank() }
-                    target?.let { t->
-                        val idx = filtered.indexOfFirst { it.item.equals(t, ignoreCase = true) }
+                    target?.let { t ->
+                        val idx = filtered.indexOfFirst { it.line.item.equals(t, ignoreCase = true) }
                         if (idx != -1) {
                             rv.post {
                                 (rv.layoutManager as LinearLayoutManager)
@@ -141,7 +155,7 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
     }
 
     private fun buildSheetText(): String {
-        val rows = adapter.currentList()
+        val rows = adapter.currentLines()
         if (rows.isEmpty()) return "비어 있음"
 
         val title = if (titleStr.isNotBlank()) titleStr
@@ -155,6 +169,22 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                 appendLine("${ln.item} (${ln.country}) / 필요:${ln.needed} / 보유:${ln.have} / 무게:$w / 가격:$p")
             }
         }
+    }
+
+    private fun buildSheetCopyTextForPaste(): String {
+        val rows = adapter.currentLines()
+        if (rows.isEmpty()) return ""
+
+        return buildString {
+            // 원하면 헤더도 빼버리자 (지금은 안 넣음)
+            rows.forEach { ln ->
+                val item = ln.item.trim()
+                val needed = ln.needed
+                val weight = ln.weight
+                val price = ln.price
+                appendLine("$item,$needed,$weight,$price")
+            }
+        }.trimEnd()
     }
 
     private fun confirmDeleteLine(line: SheetLineEntity) {
@@ -172,27 +202,39 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
     private fun openAddDialog() {
         val sheetId = requireArguments().getLong("sheetId")
-        var currentCountry = countryFilter ?: ""
 
-        if (currentCountry.isEmpty()) {
-            lifecycleScope.launch {
-                lifecycleScope.launch {
-                    val lines = vm.observeSheetLines(sheetId).first()
-                    currentCountry = lines.firstOrNull()?.country.orEmpty()
-                }
-        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val currentCountry = if (!countryFilter.isNullOrBlank()) {
+                countryFilter!!
+            } else {
+                val lines = vm.observeSheetLines(sheetId).first()
+                lines.firstOrNull()?.country.orEmpty()
+            }
 
+            showAddDialog(sheetId, currentCountry)
         }
+    }
+
+    private fun showAddDialog(sheetId: Long, currentCountry: String) {
         val v = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_edit_line_simple, null)
         val etItem = v.findViewById<EditText>(R.id.etItem)
         val etNeeded = v.findViewById<EditText>(R.id.etNeeded)
         val etWeight = v.findViewById<EditText>(R.id.etWeight)
         val etPrice = v.findViewById<EditText>(R.id.etPrice)
 
-        AlertDialog.Builder(requireContext())
+        val dialog = AlertDialog.Builder(requireContext())
             .setTitle("라인 추가")
             .setView(v)
-            .setPositiveButton("추가") { _,_ ->
+            .setPositiveButton("추가", null)
+            .setNegativeButton("취소", null)
+            .create()
+
+        dialog.show()
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val nextOrder = vm.getNextSortOrder(sheetId)
+
                 val newLine = SheetLineEntity(
                     sheetId = sheetId,
                     item = etItem.text.toString().trim(),
@@ -200,15 +242,15 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                     needed = etNeeded.text.toString().toIntOrNull() ?: 0,
                     have = 0,
                     weight = etWeight.text.toString().toFloatOrNull() ?: 0f,
-                    price = etPrice.text.toString().toIntOrNull() ?: 0
+                    price = etPrice.text.toString().toIntOrNull() ?: 0,
+                    sortOrder = nextOrder
                 )
 
                 vm.insertSheetLine(sheetId, newLine)
                 Toast.makeText(requireContext(), "라인 추가 완료!", Toast.LENGTH_SHORT).show()
-                this.rv.scrollToPosition(adapter.itemCount - 1)
+                dialog.dismiss()
             }
-            .setNegativeButton("취소", null)
-            .show()
+        }
     }
 
     private fun openEditDialog(line: SheetLineEntity) {
@@ -233,6 +275,9 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             val items = vm.getAllItemNamesOnce()
             val countries = vm.getAllCountryNamesOnce()
 
+            cachedItems = items.map { it.trim() }.toSet()
+            cachedCountries = countries.map { it.trim() }.toSet()
+
             etItem.setAdapter(
                 ArrayAdapter(
                     requireContext(),
@@ -253,6 +298,8 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             etCountry.setOnClickListener { etCountry.showDropDown() }
         }
 
+
+
         AlertDialog.Builder(requireContext())
             .setTitle("라인 수정")
             .setView(v)
@@ -260,18 +307,8 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                 val newItem = etItem.text.toString().trim()
                 val newCountry = etCountry.text.toString().trim()
 
-                // ✅ “기존 목록만” 강제: 목록에 없으면 막기
-                val okItem = vm.isValidItemName(newItem)      // 아래 추가
-                val okCountry = vm.isValidCountryName(newCountry)
-
-                if (!okItem) {
-                    Toast.makeText(requireContext(), "아이템은 목록에서만 선택 가능해요", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                if (!okCountry) {
-                    Toast.makeText(requireContext(), "나라는 목록에서만 선택 가능해요", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
+                val itemOk = cachedItems.contains(newItem)
+                val countryOk = cachedCountries.contains(newCountry)
 
                 val updated = line.copy(
                     item = newItem,
@@ -281,6 +318,28 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                     weight = etWeight.text.toString().toFloatOrNull() ?: 0f,
                     price = etPrice.text.toString().toIntOrNull() ?: 0
                 )
+
+                if (!itemOk || !countryOk) {
+                    val msg = buildString {
+                        if (!itemOk) appendLine("• 아이템이 기존 목록에 없습니다: \"$newItem\"")
+                        if (!countryOk) appendLine("• 나라가 기존 목록에 없습니다: \"$newCountry\"")
+                        appendLine()
+                        append("그래도 저장할까요? (오타일 수 있어요)")
+                    }
+
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("확인 필요")
+                        .setMessage(msg)
+                        .setPositiveButton("그래도 저장") { _, _ ->
+                            vm.updateSheetLineAndApplyHome(old = line, new = updated)
+                            Toast.makeText(requireContext(), "저장되었습니다", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton("목록에서 다시 선택", null)
+                        .show()
+
+                    return@setPositiveButton
+                }
+
                 vm.updateSheetLineAndApplyHome(old = line, new = updated)
                 Toast.makeText(requireContext(), "저장되었습니다", Toast.LENGTH_SHORT).show()
             }
@@ -292,13 +351,25 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
     // 간단 어댑터
     private class LinesAdapter(
         val onEdit: (SheetLineEntity) -> Unit,
-        val onDelete: (SheetLineEntity) -> Unit
+        val onDelete: (SheetLineEntity) -> Unit,
+        val onToggleEnabled: (SheetLineEntity, Boolean) -> Unit,
     ) : RecyclerView.Adapter<VH>() {
-        var highlightItem: String? = null
-        private val data = mutableListOf<SheetLineEntity>()
-        fun submit(list: List<SheetLineEntity>) { data.apply { clear(); addAll(list) }; notifyDataSetChanged() }
 
-        fun currentList(): List<SheetLineEntity> = data.toList()
+        var highlightItem: String? = null
+        private val data = mutableListOf<ItemCountryDao.SheetLineUi>()
+
+        fun submit(list: List<ItemCountryDao.SheetLineUi>) {
+            data.apply { clear(); addAll(list) }
+            notifyDataSetChanged()
+        }
+
+        fun currentLines(): List<SheetLineEntity> = data.map { it.line }
+
+        fun move(from: Int, to: Int) {
+            val item = data.removeAt(from)
+            data.add(to, item)
+            notifyItemMoved(from, to)
+        }
 
         override fun onCreateViewHolder(p: ViewGroup, viewType: Int): VH {
             val v = LayoutInflater.from(p.context).inflate(R.layout.item_sheet_line, p, false)
@@ -308,11 +379,22 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         override fun getItemCount() = data.size
 
         override fun onBindViewHolder(h: VH, pos: Int) {
-            val ln = data[pos]
+            val row = data[pos]
+            val ln = row.line
+            val enabled = row.enabled == 1
+
             h.main.text = "${ln.item} (${ln.country})"
-            h.sub.text = "필요:${ln.needed}  보유:${ln.have}  무게:${ln.weight}  가격:${ln.price}"
+            h.sub.text = "필요:${ln.needed} 보유:${ln.have} 무게:${ln.weight} 가격:${ln.price}"
+
             h.btnEdit.setOnClickListener { onEdit(ln) }
             h.btnDelete.setOnClickListener { onDelete(ln) }
+
+            // ✅ 토글 버튼
+            h.btnToggleEnabled.text = if (enabled) "활성" else "비활성"
+            h.btnToggleEnabled.setOnClickListener { onToggleEnabled(ln, !enabled) }
+
+            // ✅ 비활성 시 흐리게
+            h.itemView.alpha = if (enabled) 1.0f else 0.45f
 
             val isHighlight = highlightItem != null && ln.item.equals(highlightItem, true)
             h.itemView.setBackgroundResource(if (isHighlight) R.drawable.bg_highlight else 0)
@@ -324,6 +406,9 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         val sub: TextView = v.findViewById(R.id.tvSub)
         val btnEdit: Button = v.findViewById(R.id.btnEdit)
         val btnDelete: Button = v.findViewById(R.id.btnDelete)
+
+        // ✅ 새 버튼
+        val btnToggleEnabled: Button = v.findViewById(R.id.btnToggleEnabled)
     }
 
     companion object {
@@ -333,6 +418,36 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                 putString("title", title)
             }
         }
+    }
+
+    private fun attachLineReorder(sheetId: Long) {
+        val touchHelper = androidx.recyclerview.widget.ItemTouchHelper(
+            object : androidx.recyclerview.widget.ItemTouchHelper.SimpleCallback(
+                androidx.recyclerview.widget.ItemTouchHelper.UP or androidx.recyclerview.widget.ItemTouchHelper.DOWN,
+                0
+            ) {
+                override fun onMove(
+                    recyclerView: RecyclerView,
+                    viewHolder: RecyclerView.ViewHolder,
+                    target: RecyclerView.ViewHolder
+                ): Boolean {
+                    val from = viewHolder.bindingAdapterPosition
+                    val to = target.bindingAdapterPosition
+                    adapter.move(from, to)
+                    return true
+                }
+
+                override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+                override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                    super.clearView(recyclerView, viewHolder)
+                    // ✅ 드래그 끝나면 DB 저장
+                    vm.saveLineOrder(adapter.currentLines())
+                    Toast.makeText(requireContext(), "순서 저장됨", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+        touchHelper.attachToRecyclerView(rv)
     }
 }
 

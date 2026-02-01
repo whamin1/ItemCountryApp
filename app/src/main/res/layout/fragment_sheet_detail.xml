@@ -21,15 +21,24 @@
                 app:title="시트 상세"
                 app:menu="@menu/menu_sheet"/>
         </com.google.android.material.appbar.AppBarLayout>
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipActions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"/>
 
         <TextView
             android:id="@+id/tvTitle"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textSize="18sp" android:textStyle="bold" android:paddingBottom="8dp"/>
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingBottom="8dp"/>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv"
-            android:layout_width="match_parent" android:layout_height="match_parent"/>
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
     </LinearLayout>
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:layout_width="wrap_content"

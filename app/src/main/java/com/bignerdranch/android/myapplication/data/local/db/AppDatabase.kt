@@ -33,7 +33,7 @@ import java.util.concurrent.Executors
         SheetLineEntity::class,
         PredictionAckEntity::class
     ],
-    version = 20,
+    version = 23,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -117,7 +117,8 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("""
                     UPDATE quantity_log
                     SET countryName = (SELECT name FROM countries WHERE id = quantity_log.countryId)
-                    WHERE countryName IS NOT NULL AND countryId IS NOT NULL
+                    WHERE (countryName IS NULL OR countryName = '')
+                    AND countryId IS NOT NULL
                     """)
                 db.execSQL("""
                     UPDATE quantity_log
@@ -169,7 +170,70 @@ WHERE countryId IS NOT NULL AND (weightAt IS NULL OR weightAt = 0)
 """)
             }
         }
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE item_country ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;")
+            }
+        }
 
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+
+                // 1) 새 테이블 생성 (price INTEGER로)
+                db.execSQL("""
+            CREATE TABLE IF NOT EXISTS item_country_new (
+                itemId INTEGER NOT NULL,
+                countryId INTEGER NOT NULL,
+                have INTEGER NOT NULL,
+                needed INTEGER NOT NULL,
+                weight REAL NOT NULL,
+                price INTEGER NOT NULL,
+                lastClickedAt INTEGER,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY(itemId, countryId)
+            )
+        """.trimIndent())
+
+                // 2) 데이터 복사 (price REAL -> INTEGER 캐스팅)
+                db.execSQL("""
+            INSERT INTO item_country_new (
+                itemId, countryId, have, needed, weight, price, lastClickedAt, enabled
+            )
+            SELECT
+                itemId,
+                countryId,
+                have,
+                needed,
+                weight,
+                CAST(price AS INTEGER),
+                lastClickedAt,
+                COALESCE(enabled, 1)
+            FROM item_country
+        """.trimIndent())
+
+                // 3) 기존 테이블 삭제 후 이름 변경
+                db.execSQL("DROP TABLE item_country")
+                db.execSQL("ALTER TABLE item_country_new RENAME TO item_country")
+
+                // 4) 인덱스 재생성 (네가 원래 쓰던 것들)
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_item_country_countryId ON item_country(countryId)")
+                // 만약 itemId 인덱스도 있었으면 이것도:
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_item_country_itemId ON item_country(itemId)")
+            }
+        }
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // sortOrder 없으면 추가 (방어적으로)
+                if (!hasColumn(db, "sheet_lines", "sortOrder")) {
+                    db.execSQL("ALTER TABLE sheet_lines ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")
+                    // 초기 정렬값 백필: id 순으로 보이게 하고 싶으면
+                    db.execSQL("UPDATE sheet_lines SET sortOrder = id WHERE sortOrder = 0")
+                }
+
+                // isDeleted defaultValue mismatch가 싫으면: 엔티티에 defaultValue="0" 맞추는 게 제일 간단
+                // (아래 2번 참고)
+            }
+        }
 
 
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
@@ -192,15 +256,18 @@ WHERE countryId IS NOT NULL AND (weightAt IS NULL OR weightAt = 0)
                     AppDatabase::class.java,
                     "item_country.db"
                 )
-                    .setQueryCallback(
-                        { sql, _ -> Log.d("SQL", sql) },
-                        Executors.newSingleThreadExecutor()
-                    )
                     // ❌ 이건 지우고
 //                     .fallbackToDestructiveMigration()
 
 //                    // ✅ 마이그레이션 추가
-                    .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+                    .addMigrations(MIGRATION_16_17,
+                        MIGRATION_17_18,
+                        MIGRATION_18_19,
+                        MIGRATION_19_20,
+                        MIGRATION_20_21,
+                        MIGRATION_21_22,
+                        MIGRATION_22_23
+                    )
                     .build()
                     .also { INSTANCE = it }
             }

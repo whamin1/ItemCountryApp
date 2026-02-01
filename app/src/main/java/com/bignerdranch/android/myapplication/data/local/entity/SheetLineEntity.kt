@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -27,6 +28,8 @@ data class SheetLineEntity(
     val price: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val hidden: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
     val isDeleted: Boolean = false,
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    val sortOrder: Int = 0
 )
