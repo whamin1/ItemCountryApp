@@ -11,15 +11,25 @@
         layout="@layout/view_report_period_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"/>
-
-    <!-- 국가 필터 -->
-    <AutoCompleteTextView
-        android:id="@+id/actCountry"
+    <TextView
+        android:id="@+id/tvHeaderLine1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="All"
-        android:inputType="none"
-        android:layout_marginTop="12dp"/>
+        android:text="총 0개 · 0.00 kg · ₩0" />
+
+    <TextView
+        android:id="@+id/tvHeaderLine2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="총 0개 · 0.00 kg · ₩0" />
+
+
+    <!-- 국가 필터 -->
+    <androidx.appcompat.widget.SearchView
+        android:id="@+id/searchView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:queryHint="아이템 검색"/>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler"

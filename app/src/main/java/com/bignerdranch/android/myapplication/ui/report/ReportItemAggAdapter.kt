@@ -16,13 +16,29 @@ class ReportItemAggAdapter(
     private val onClick: (ItemCountryDao.ReportItemAggRow) -> Unit
 ) : RecyclerView.Adapter<ReportItemAggAdapter.VH>() {
 
-    private val items = mutableListOf<ItemCountryDao.ReportItemAggRow>()
     private var totalKgAll: Double = 0.0
+    private val all = mutableListOf<ItemCountryDao.ReportItemAggRow>()
+    private val shown = mutableListOf<ItemCountryDao.ReportItemAggRow>()
 
     fun submit(list: List<ItemCountryDao.ReportItemAggRow>) {
-        items.clear()
-        items.addAll(list)
+        all.clear()
+        all.addAll(list)
+        shown.clear()
+        shown.addAll(list)
         totalKgAll = list.sumOf { it.totalKg }
+        notifyDataSetChanged()
+    }
+
+    fun filter(query: String) {
+        shown.clear()
+        if (query.isBlank()) {
+            shown.addAll(all)
+        } else {
+            val q = query.trim()
+            shown.addAll(all.filter {
+                it.item.contains(q, ignoreCase = true)
+            })
+        }
         notifyDataSetChanged()
     }
 
@@ -32,10 +48,10 @@ class ReportItemAggAdapter(
         return VH(v, onClick)
     }
 
-    override fun getItemCount() = items.size
+    override fun getItemCount() = shown.size
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        holder.bind(items[position], totalKgAll)
+        holder.bind(shown[position], totalKgAll)
     }
 
     class VH(v: View, private val onClick: (ItemCountryDao.ReportItemAggRow) -> Unit) :
