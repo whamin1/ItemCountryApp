@@ -3,9 +3,6 @@ package com.bignerdranch.android.myapplication.ui.catalog
 import android.content.Intent
 import android.icu.text.NumberFormat
 import android.os.Bundle
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.MenuItem
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -27,7 +24,9 @@ import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * 아이템 탭 = “버튼 + 로 증가한 수량 로그” 전용 화면
@@ -177,8 +176,6 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
             val p = r.price?.takeIf { it > 0 }?.let { " / ${NumberFormat.getInstance().format(it)}" } ?: ""
             val after = r.fromHave + r.delta
             val changeStr = "${r.fromHave}→$after"
-            val total = data.filter { it.item == r.item && it.country == r.country }
-                .sumOf { it.delta }
 
 
             holder.tv.text = "$time ${r.item} · ${r.country} $changeStr $w$p"
@@ -540,8 +537,8 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                         countryName = pickedCountryName
                     )
 
-                    val newWeightAt = line?.weight
-                    val newPriceAt = line?.price
+                    line?.weight
+                    line?.price
 
                     val entity = dao.getQuantityLogById(row.id)
                     if (entity == null) {

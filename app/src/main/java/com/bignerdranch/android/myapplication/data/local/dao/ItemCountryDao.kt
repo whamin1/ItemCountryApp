@@ -1798,4 +1798,44 @@ WHERE id = :lineId
 """)
     suspend fun restoreLineToOrder(lineId: Long, newOrder: Int)
 
+    @Transaction
+    suspend fun deleteLinkByNames(item: String, country: String) {
+        val itemId = getItemIdByName(item) ?: return
+        val countryId = getCountryIdByName(country) ?: return
+        deleteLinkByIds(itemId, countryId)
+    }
+
+    @Query("""
+SELECT 
+  ic.itemId AS itemId,
+  ic.countryId AS countryId,
+  i.name AS item,
+  c.name AS country
+FROM item_country ic
+JOIN items i ON i.id = ic.itemId
+JOIN countries c ON c.id = ic.countryId
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM sheet_lines sl
+  WHERE LOWER(sl.item) = LOWER(i.name)
+    AND LOWER(sl.country) = LOWER(c.name)
+)
+ORDER BY i.name, c.name
+""")
+    suspend fun findOrphanLinksBySheet(): List<NamePairRow>
+
+    @Query("""
+DELETE FROM item_country AS ic
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM sheet_lines sl
+  JOIN items i ON i.id = ic.itemId
+  JOIN countries c ON c.id = ic.countryId
+  WHERE LOWER(sl.item) = LOWER(i.name)
+    AND LOWER(sl.country) = LOWER(c.name)
+    AND sl.isDeleted = 0
+)
+""")
+    suspend fun deleteOrphanLinksBySheet(): Int
+
 }

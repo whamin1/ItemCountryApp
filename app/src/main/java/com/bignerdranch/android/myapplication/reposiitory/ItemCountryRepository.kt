@@ -519,6 +519,22 @@ class ItemCountryRepository(
         dao.restoreLineToOrder(lineId, newOrder)
     }
 
+    suspend fun cleanupOrphanLinksOnce(): Int {
+        val orphans = dao.findOrphanLinksBySheet()
+
+        // ✅ 너무 길면 50개만
+        val preview = orphans.take(50).joinToString("\n") {
+            "${it.item} / ${it.country} (itemId=${it.itemId}, countryId=${it.countryId})"
+        }
+
+        Log.d("CLEANUP", "Orphan links = ${orphans.size}\n$preview")
+
+        val deleted = dao.deleteOrphanLinksBySheet()
+        Log.d("CLEANUP", "Deleted orphan links = $deleted")
+
+        return deleted
+    }
+
 
     private val KST = ZoneId.of("Asia/Seoul")
 

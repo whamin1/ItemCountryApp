@@ -279,8 +279,7 @@ class EntryAdapter(
                 val btnPlus = chipView.findViewById<ImageButton>(R.id.btnPlus)
                 val tvPrice = chipView.findViewById<TextView>(R.id.tvPrice)
 
-                tvPrice?.text = if (r.price > 0) "%,d".format(r.price) else ""
-
+                tvPrice.text = if (r.price > 0) "%,d".format(r.price) else ""
 
                 // 현재 모드 기준으로 (item,country) 키 만들기
                 val item = if (!tempIsCountryMode) head else r.name

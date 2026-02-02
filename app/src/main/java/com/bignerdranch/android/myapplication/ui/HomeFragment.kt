@@ -230,7 +230,9 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                             .setTitle("정리할까요?")
                             .setMessage("이 아이템은 어떤 시트에도 없습니다.\n홈 목록에서 삭제하시겠습니까?\n\n$item")
                             .setPositiveButton("삭제") { _, _ ->
-                                vm.deleteItem(item) // ✅ 아이템 전체 삭제 (links -> items)
+                                viewLifecycleOwner.lifecycleScope.launch {
+                                    itemDao.deleteLinkByNames(item, country)
+                                }
                                 Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
                             }
                             .setNegativeButton("취소", null)
@@ -294,6 +296,15 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         toolbar.inflateMenu(R.menu.menu)
         val searchItem = toolbar.menu.findItem(R.id.action_search)
         val searchView = searchItem.actionView as SearchView
+        toolbar.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.action_cleanup_orphan_links -> {
+                    confirmCleanupOrphanLinks()
+                    true
+                }
+                else -> false
+            }
+        }
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
                 moveToNextMatch(query)
@@ -711,6 +722,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 } else if (delta < 0) {
                     vm.removeOffClick(itemId, countryId)   // 지금 만든 거
                 }
+                vm.refreshPredictionsDebounced()
             }
 
             viewLifecycleOwner.lifecycleScope.launch {
@@ -1179,59 +1191,20 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             .show()
     }
 
-//       추가 버튼
-//    private fun showAddDialog() {
-//        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_add, null)
-//        val rbItemToCountries = dialogView.findViewById<RadioButton>(R.id.rbItemToCountries)
-//        val rbCountryToItems = dialogView.findViewById<RadioButton>(R.id.rbCountryToItems)
-//        val etHead = dialogView.findViewById<EditText>(R.id.etHead)
-//        val etList = dialogView.findViewById<EditText>(R.id.etList)
-//        val etWeight = dialogView.findViewById<EditText>(R.id.etWeight)
-//        val etPrice = dialogView.findViewById<EditText>(R.id.etPrice)
-//
-//        AlertDialog.Builder(requireContext())
-//            .setTitle("추가하기")
-//            .setView(dialogView)
-//            .setPositiveButton("추가") { dialog, _ ->
-//                val head = etHead.text.toString().trim()
-//                val parsed = parseListWithNumbers(etList.text.toString())
-//                val weight = etWeight.text.toString().toFloatOrNull() ?: 0f
-//                val price = etPrice.text.toString().toFloatOrNull() ?: 0f
-//
-//                if (head.isEmpty() || parsed.isEmpty()) {
-//                    Toast.makeText(requireContext(), "머리와 목록을 입력하세요.", Toast.LENGTH_SHORT).show()
-//                    return@setPositiveButton
-//                }
-//
-//                viewLifecycleOwner.lifecycleScope.launch {
-//                    if (rbItemToCountries.isChecked) {
-//                        // 아이템 → 나라들
-//                        val countryNames = parsed.map { it.first }
-//                        vm.addItemsSuspend(mapOf(head to countryNames))
-//                        parsed.forEach { (country, have) ->
-//                            vm.updateQuantity(head, country, needed = 0, have = have)
-//                            vm.updateWeightAndPrice(head, country, weight, price)
-//                        }
-//                    } else {
-//                        // 나라 → 아이템들
-//                        val itemNames = parsed.map { it.first }
-//                        val map = itemNames.associateWith { listOf(head) }
-//                        vm.addItemsSuspend(map) // 링크 0으로 생성
-//                        parsed.forEach { (item, have) ->
-//                            vm.updateQuantity(item, head, needed = 0, have = have)
-//                            vm.updateWeightAndPrice(item, head, weight, price)
-//                        }
-//                    }
-//                }
-//
-//
-//                Toast.makeText(requireContext(), "추가 완료!", Toast.LENGTH_SHORT).show()
-//                Log.d("AddDialog", "🧾 저장 요청: $head weight=$weight price=$price")
-//                dialog.dismiss()
-//            }
-//            .setNegativeButton("취소", null)
-//            .show()
-//    }
+    // 고아 링크 제거
+    private fun confirmCleanupOrphanLinks() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("홈 목록 정리")
+            .setMessage("시트에 존재하지 않는 홈 링크(item_country)만 삭제합니다.\n실행할까요?")
+            .setPositiveButton("정리") { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val deleted = vm.cleanupOrphanLinksOnce() // 아래 4) 참고
+                    Toast.makeText(requireContext(), "정리 완료: ${deleted}개", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
 
     private fun showRowPickerBottomSheet(head: String, rows: List<Row>) {
         val dialog = BottomSheetDialog(requireContext())

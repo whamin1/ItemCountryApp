@@ -41,11 +41,13 @@ class ItemReportFragment : Fragment(R.layout.fragment_item_report) {
         toolbar.inflateMenu(R.menu.menu_item_report)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val p = reportVm.period.value
+            val now = System.currentTimeMillis()
+            val from = now - 30L * 24 * 60 * 60 * 1000
+
             val report = vm.buildItemReport(
                 itemId = itemId,
-                from = p.from,
-                to = p.to,
+                from = from,
+                to = now,
                 countryId = reportVm.selectedCountryId.value
             )
 
@@ -56,7 +58,6 @@ class ItemReportFragment : Fragment(R.layout.fragment_item_report) {
             toolbar.subtitle =
                 "$speedText · 평균 $avgText · ${report.summary.sampleCount}/${report.summary.totalCount}"
 
-            // 🔽 숨김 상태 반영
             updateHiddenIcon(toolbar, itemId)
         }
 
@@ -77,18 +78,19 @@ class ItemReportFragment : Fragment(R.layout.fragment_item_report) {
         rv.adapter = adapter
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val p = reportVm.period.value
+            val now = System.currentTimeMillis()
+            val from = now - 30L * 24 * 60 * 60 * 1000
+
             val report = vm.buildItemReport(
                 itemId = itemId,
-                from = p.from,
-                to = p.to,
+                from = from,
+                to = now,
                 countryId = reportVm.selectedCountryId.value
             )
 
             val ui = mutableListOf<ItemCountryDao.ItemReportUi>()
 
             ui += ItemCountryDao.ItemReportUi.Header("최근 생산 로그")
-
             report.logs.forEach {
                 ui += ItemCountryDao.ItemReportUi.LogRow(
                     time = formatTime(it.ts),
@@ -100,7 +102,6 @@ class ItemReportFragment : Fragment(R.layout.fragment_item_report) {
             }
 
             ui += ItemCountryDao.ItemReportUi.Header("다음 예상")
-
             report.nextPredictions.forEach {
                 ui += ItemCountryDao.ItemReportUi.PredictionRow(
                     time = formatTime(it.predictedAt),

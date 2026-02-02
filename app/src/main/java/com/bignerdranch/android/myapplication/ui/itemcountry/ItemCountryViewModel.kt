@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.Transaction
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
@@ -14,6 +15,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.bignerdranch.android.myapplication.repository.ReportPrefRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -99,7 +102,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
                                 have = r.have,
                                 // 너 CountryQty에 offHave/price/weight가 있으면 같이 넣어
                                 // offHave = r.offHave,
-                                // price = r.price,
+                                price = r.price ?: 0
                                 // weight = r.weight
                             )
                         }.sortedBy { it.name }
@@ -116,6 +119,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
                                 name = r.item,
                                 needed = r.needed,
                                 have = r.have,
+                                price = r.price ?: 0
                                 // offHave/price/weight도 있으면 동일하게
                             )
                         }.sortedBy { it.name }
@@ -460,4 +464,17 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
             repo.updateLineOrders(orders)
         }
     }
+    private var predRefreshJob: Job? = null
+
+    fun refreshPredictionsDebounced(delayMs: Long = 250L) {
+        predRefreshJob?.cancel()
+        predRefreshJob = viewModelScope.launch {
+            delay(delayMs)
+            refreshPredictions()
+        }
+    }
+
+    // ItemCountryViewModel
+    suspend fun cleanupOrphanLinksOnce(): Int =
+        repo.cleanupOrphanLinksOnce()
 }
