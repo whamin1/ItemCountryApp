@@ -91,6 +91,17 @@ class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
             onClick = { row ->
                 val (from, to) = dayIndexToRange(row.dayIndexKst)
 
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val logs = dao.debugLogsInRange(from, to)
+                    Log.d("DBG", "range=${Date(from)} ~ ${Date(to)} count=${logs.size}")
+                    logs.forEach {
+                        Log.d(
+                            "DBG",
+                            "id=${it.id} delta=${it.delta} batchId=${it.batchId} archived=${it.archived} ts=${it.timestamp}"
+                        )
+                    }
+                }
+
                 val args = Bundle().apply {
                     putLong("from", from)
                     putLong("to", to)

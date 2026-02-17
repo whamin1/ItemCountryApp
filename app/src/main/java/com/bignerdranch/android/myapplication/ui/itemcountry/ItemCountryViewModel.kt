@@ -168,6 +168,7 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
         repo.deleteCountryByName(country)
     }
 
+
     fun updateQuantity(item: String, country: String, needed: Int, have: Int, batchId: Long? = null) = viewModelScope.launch {
         repo.updateQuantity(item, country, needed, have, batchId)
     }

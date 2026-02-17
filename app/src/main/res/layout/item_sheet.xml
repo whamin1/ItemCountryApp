@@ -23,7 +23,6 @@
             android:text="시트 제목"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="#111111"
             android:paddingBottom="8dp" />
 
         <!-- 버튼 행 -->

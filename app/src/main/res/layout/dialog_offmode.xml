@@ -13,13 +13,32 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"/>
 
+    <!-- ✅ 현재 Off 수량(읽기 전용) -->
+    <TextView
+        android:id="@+id/tvBase"
+        android:layout_marginTop="12dp"
+        android:text="현재 Off: -"
+        android:textSize="16sp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+    <!-- ✅ 목표값(사용자가 조절) -->
     <EditText
         android:id="@+id/etOffCount"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="12dp"
         android:inputType="number"
-        android:hint="Off 수량"
+        android:hint="변경 후 Off 수량(목표)"
         android:textSize="20sp"
         android:gravity="center"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+    <!-- ✅ 이번에 반영될 변화(Δ) -->
+    <TextView
+        android:id="@+id/tvDelta"
+        android:layout_marginTop="10dp"
+        android:text="이번 변경: Δ 0"
+        android:textSize="16sp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"/>
 

@@ -3,6 +3,7 @@ package com.bignerdranch.android.myapplication.ui.catalog
 import android.content.Intent
 import android.icu.text.NumberFormat
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -19,6 +20,7 @@ import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
 import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
 import com.bignerdranch.android.myapplication.data.local.entity.QuantityLogEntity
+import com.bignerdranch.android.myapplication.ui.report.ReportViewModel
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.launch
@@ -751,48 +753,53 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     }
 
     // ✅ 날짜 선택 다이얼로그
+// ✅ Material DateRangePicker (한 번에 기간 선택)
     private fun showDateRangerPicker() {
-        val cal = Calendar.getInstance()
-        // 1) 사작 날짜 선택
-        val startDialog = android.app.DatePickerDialog(
-            requireContext(),
-            { _, year, month, dayOfMonth ->
-                val startCal = Calendar.getInstance().apply {
-                    set(year, month, dayOfMonth)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                val startMillis = startCal.timeInMillis
 
-                // 2) 끝 날짜 선택
-                val endDialog = android.app.DatePickerDialog(
-                    requireContext(),
-                    { _, eYear, eMonth, eDayOfMonth ->
-                        val endCal = Calendar.getInstance().apply {
-                            set(eYear, eMonth, eDayOfMonth)
-                            set(Calendar.MILLISECOND, 999)
-                        }
-                        val endMillis = endCal.timeInMillis
+        // 이미 선택된 기간이 있으면 그걸 기본값으로 보여주기
+        val initialSelection =
+            if (selectedStartMillis != null && selectedEndMillis != null) {
+                androidx.core.util.Pair(selectedStartMillis!!, selectedEndMillis!!)
+            } else null
 
-                        //기간 저장
-                        selectedStartMillis = startMillis
-                        selectedEndMillis = endMillis
+        val picker = com.google.android.material.datepicker.MaterialDatePicker
+            .Builder
+            .dateRangePicker()
+            .setTitleText("기간 선택")
+            .apply {
+                if (initialSelection != null) setSelection(initialSelection)
+            }
+            .build()
 
-                        applyFilter()
-                    },
-                    year, month, dayOfMonth
-                )
-                endDialog.datePicker.minDate = startMillis
-                endDialog.setTitle("끝 날짜 선택")
-                endDialog.show()
-            },
-            cal.get(Calendar.YEAR),
-            cal.get(Calendar.MONTH),
-            cal.get(Calendar.DAY_OF_MONTH)
-        )
-        startDialog.setTitle("시작 날짜 선택")
-        startDialog.show()
+        picker.addOnPositiveButtonClickListener { range ->
+            val start = range.first ?: return@addOnPositiveButtonClickListener
+            val end = range.second ?: return@addOnPositiveButtonClickListener
+
+            // ⚠️ MaterialDatePicker는 날짜(ms)만 주고, 시각이 애매할 수 있어서
+            // "하루 전체 포함"하려면 시작=00:00:00.000, 끝=23:59:59.999로 보정 추천
+            val startCal = Calendar.getInstance().apply {
+                timeInMillis = start
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val endCal = Calendar.getInstance().apply {
+                timeInMillis = end
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }
+
+            selectedStartMillis = startCal.timeInMillis
+            selectedEndMillis = endCal.timeInMillis
+
+            applyFilter()
+        }
+
+        picker.show(parentFragmentManager, "date_range_picker")
     }
-
     private fun exportToCsv() {
         if (currentRows.isEmpty()) {
             Toast.makeText(requireContext(), "로그가 없습니다.", Toast.LENGTH_SHORT).show()

@@ -131,6 +131,18 @@ interface ItemCountryDao {
     @Query("UPDATE item_country SET needed = :needed, have = :have WHERE itemId = :itemId AND countryId = :countryId")
     suspend fun updateQuantity(itemId: Long, countryId: Long, needed: Int, have: Int)
 
+
+
+    @Query("""
+UPDATE item_country
+SET
+    needed = CASE WHEN :needed < 0 THEN 0 ELSE :needed END,
+    have   = CASE WHEN :have   < 0 THEN 0 ELSE :have   END
+WHERE itemId = :itemId
+AND countryId = :countryId
+""")
+    suspend fun updateQuantityClamped(itemId: Long, countryId: Long, needed: Int, have: Int)
+
     @Query("""
 SELECT i.name AS item,
        c.name AS country,
@@ -717,13 +729,18 @@ SELECT
   i.name AS item,
   c.name AS country,
   ic.have AS have,
-  COALESCE((
-    SELECT SUM(q.delta) 
+
+  MAX(0, COALESCE((
+    SELECT q.toHave
     FROM quantity_log q
-    WHERE q.itemId = ic.itemId 
+    WHERE q.itemId = ic.itemId
       AND q.countryId = ic.countryId
       AND COALESCE(q.batchId, 0) = 0
-  ), 0) AS offHave,
+      AND COALESCE(q.archived, 0) = 0
+    ORDER BY q.timestamp DESC, q.id DESC
+    LIMIT 1
+  ), 0)) AS offHave,
+
   ic.needed AS needed,
   ic.weight AS weight,
   ic.price AS price,
@@ -732,11 +749,10 @@ FROM item_country ic
 JOIN items i ON i.id = ic.itemId
 JOIN countries c ON c.id = ic.countryId
 WHERE c.hidden = 0
-AND COALESCE(ic.enabled, 1) = 1
+  AND COALESCE(ic.enabled, 1) = 1
 ORDER BY i.name, c.name
 """)
     fun observeItemsWithOff(): Flow<List<ItemWithOff>>
-
     // (3) OFF 모드 클릭은 로그만 남기기
 
     @androidx.room.Transaction
@@ -756,35 +772,43 @@ ORDER BY i.name, c.name
             )
         )
     }
-
-    @androidx.room.Transaction
+    @Query("""
+UPDATE quantity_log
+SET batchId = 0
+WHERE COALESCE(batchId, 0) < 0
+""")
+    suspend fun fixNegativeBatchIdToZero(): Int
+    @Transaction
     suspend fun removeOffClick(itemId: Long, countryId: Long) {
-
         val before = getOffHave(itemId, countryId)
-        val after = before - 1
-
         if (before <= 0) return
 
+        val after = before - 1
         insertQuantityLogWithSnapshot(
             QuantityLogEntity(
                 itemId = itemId,
                 countryId = countryId,
-                fromHave = before, // 본 have는 안 바꾸니 0(또는 생략 가능)
+                fromHave = before,
                 toHave = after,
                 delta = -1,
                 timestamp = System.currentTimeMillis(),
-                batchId = null // 또는 0 (쿼리에서 COALESCE로 0 취급)
+                batchId = 0L
             )
         )
     }
 
     // (선택) 특정 아이템의 offHave만 읽기
     @Query("""
-SELECT COALESCE(SUM(delta), 0)
-FROM quantity_log
-WHERE itemId = :itemId
-  AND countryId = :countryId
-  AND COALESCE(batchId, 0) = 0
+SELECT MAX(0, COALESCE((
+  SELECT q.toHave
+  FROM quantity_log q
+  WHERE q.itemId = :itemId
+    AND q.countryId = :countryId
+    AND COALESCE(q.batchId, 0) = 0
+    AND COALESCE(q.archived, 0) = 0
+  ORDER BY q.timestamp DESC, q.id DESC
+  LIMIT 1
+), 0))
 """)
     suspend fun getOffHave(itemId: Long, countryId: Long): Int
 
@@ -908,12 +932,16 @@ WHERE itemId = :itemId
 """)
     suspend fun getLastClickedAt(itemId: Long, countryId: Long): Long?
 
-    @androidx.room.Transaction
+
+
+    @Transaction
     suspend fun addOffDelta(itemId: Long, countryId: Long, delta: Int) {
         if (delta == 0) return
 
-        val before = getOffHave(itemId, countryId)
-        val after = before + delta
+        val before = getOffHave(itemId, countryId)  // 이제 최신 toHave 기반(0 이상)
+        val after = (before + delta).coerceAtLeast(0)
+        val appliedDelta = after - before
+        if (appliedDelta == 0) return
 
         insertQuantityLogWithSnapshot(
             QuantityLogEntity(
@@ -922,9 +950,9 @@ WHERE itemId = :itemId
                 countryId = countryId,
                 fromHave = before,
                 toHave = after,
-                delta = delta,
+                delta = appliedDelta,
                 timestamp = System.currentTimeMillis(),
-                batchId = null,   // OFF 모드 그대로
+                batchId = 0L,      // ✅ OFF는 0L로 통일 추천
                 archived = 0
             )
         )
@@ -1104,6 +1132,9 @@ LIMIT :limit
     @Query("SELECT ackAt FROM prediction_ack WHERE itemId = :itemId LIMIT 1")
     suspend fun getAckAt(itemId: Long): Long?
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPredictionAck(entity: PredictionAckEntity)
+
     @Upsert
     suspend fun upsertAck(e: PredictionAckEntity)
 
@@ -1182,6 +1213,9 @@ WHERE itemId = :oldItemId
 UPDATE prediction_ack
 SET itemId = :newItemId
 WHERE itemId = :oldItemId
+AND NOT EXISTS (
+    SELECT 1 FROM prediction_ack WHERE itemId = :newItemId
+)
 """)
     suspend fun migratePredictionAcks(
         oldItemId: Long,
@@ -1195,7 +1229,7 @@ WHERE itemId = :oldItemId
     suspend fun upsertPredictionAck(e: PredictionAckEntity)
 
     @Query("DELETE FROM prediction_ack WHERE itemId = :itemId")
-    suspend fun deletePredictionAck(itemId: Long)
+    suspend fun deletePredictionAck(itemId: Long): Int
 
     data class ItemCountryPrice(
         val item: String,
@@ -1837,5 +1871,23 @@ WHERE NOT EXISTS (
 )
 """)
     suspend fun deleteOrphanLinksBySheet(): Int
+
+    data class DebugLogRow(
+        val id: Long,
+        val delta: Int,
+        val batchId: Long?,
+        val archived: Int,
+        val timestamp: Long,
+    )
+
+    @Query("""
+SELECT id, delta, batchId, archived, timestamp
+FROM quantity_log
+WHERE delta > 0
+  AND archived = 0
+  AND timestamp BETWEEN :from AND :to
+ORDER BY timestamp ASC, id ASC
+""")
+    suspend fun debugLogsInRange(from: Long, to: Long): List<DebugLogRow>
 
 }

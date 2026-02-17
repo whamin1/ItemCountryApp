@@ -132,6 +132,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            val dao = AppDatabase.get(requireActivity()).itemCountryDao()
+            val fixed = dao.fixNegativeBatchIdToZero()
+            Log.d("FIX", "batchId 음수 → 0 수정 개수 = $fixed")
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
             AppDatabase.get(requireContext())
                 .itemCountryDao()
                 .backfillItemCountryWeightPriceFromSheets()
@@ -214,34 +220,81 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         // 2) 어댑터/리사이클러뷰 셋업 (클래스 프로퍼티 사용, 지역 변수 만들지 말 것!)
         adapter = EntryAdapter(
             onItemLongClick = { head, r ->
+
                 val countryMode = isCountryMode.value
                 val item = if (!countryMode) head else r.name
                 val country = if (!countryMode) r.name else head
+                val key = item to country
 
-                viewLifecycleOwner.lifecycleScope.launch {
-                    val row = vm.findOneItemRowForJump(item, country)
+                // ✅ 모드별 메뉴 구성
+                val isRecordMode = !isCountMode.value
 
-                    if (row != null) {
-                        navigateToDetail(row)
-                    } else {
-                        Toast.makeText(requireContext(), "시트에서 못 찾음: $item / $country", Toast.LENGTH_SHORT).show()
-                        // ✅ row == null 이면: 시트에도 없으니 "정리(삭제)" 제안
-                        AlertDialog.Builder(requireContext())
-                            .setTitle("정리할까요?")
-                            .setMessage("이 아이템은 어떤 시트에도 없습니다.\n홈 목록에서 삭제하시겠습니까?\n\n$item")
-                            .setPositiveButton("삭제") { _, _ ->
-                                viewLifecycleOwner.lifecycleScope.launch {
-                                    itemDao.deleteLinkByNames(item, country)
-                                }
-                                Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
-                            }
-                            .setNegativeButton("취소", null)
-                            .show()
-
-                    }
-
-
+                val options = if (isRecordMode) {
+                    arrayOf("상세로 이동", "OFF 0으로(로그)")
+                } else {
+                    arrayOf("상세로 이동", "표시값 0으로(임시)")
                 }
+
+                AlertDialog.Builder(requireContext())
+                    .setTitle("$item / $country")
+                    .setItems(options) { _, which ->
+                        when (options[which]) {
+
+                            "상세로 이동" -> {
+                                viewLifecycleOwner.lifecycleScope.launch {
+                                    val row = vm.findOneItemRowForJump(item, country)
+                                    if (row != null) {
+                                        navigateToDetail(row)
+                                    } else {
+                                        Toast.makeText(
+                                            requireContext(),
+                                            "시트에서 못 찾음: $item / $country",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+
+                                        AlertDialog.Builder(requireContext())
+                                            .setTitle("정리할까요?")
+                                            .setMessage(
+                                                "이 아이템은 어떤 시트에도 없습니다.\n" +
+                                                        "홈 목록에서 삭제하시겠습니까?\n\n$item"
+                                            )
+                                            .setPositiveButton("삭제") { _, _ ->
+                                                viewLifecycleOwner.lifecycleScope.launch {
+                                                    itemDao.deleteLinkByNames(item, country)
+                                                }
+                                                Toast.makeText(requireContext(), "삭제되었습니다.", Toast.LENGTH_SHORT).show()
+                                            }
+                                            .setNegativeButton("취소", null)
+                                            .show()
+                                    }
+                                }
+                            }
+
+                            "표시값 0으로(임시)" -> {
+                                // ✅ 저장/표시 모드에서만
+                                forceTempHaveZero(
+                                    item = item,
+                                    country = country,
+                                    currentNeeded = r.needed,
+                                    currentHave = r.have
+                                )
+                            }
+
+                            "OFF 0으로(로그)" -> {
+                                // ✅ OFF 모드: 현재 offHave만큼 한 방에 -delta 넣어서 0으로
+                                viewLifecycleOwner.lifecycleScope.launch {
+                                    val itemId = itemDao.getItemIdByName(item) ?: return@launch
+                                    val countryId = itemDao.getCountryIdByName(country) ?: return@launch
+
+                                    val cur = itemDao.getOffHave(itemId, countryId)
+                                    if (cur > 0) {
+                                        itemDao.addOffDelta(itemId, countryId, -cur)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .show()
             }
         ,
             onPickRows = { head, rows ->
@@ -532,6 +585,25 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         }
     }
 
+    // 0으로 만들기
+    private fun forceTempHaveZero(item: String, country: String, currentNeeded: Int, currentHave: Int) {
+        val key = item to country
+
+        val p = pending[key]
+        if (p == null) {
+            pending[key] = Pending(
+                baseNeeded = currentNeeded,
+                baseHave = currentHave,
+                newHave = 0
+            )
+        } else {
+            p.newHave = 0
+        }
+
+        adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
+        updateFabSaveLabel()
+        Toast.makeText(requireContext(), "임시 보유값을 0으로 설정했습니다.", Toast.LENGTH_SHORT).show()
+    }
 
     private fun jumpToHeadExact(head: String) {
         val pos = adapter.findHeadPositionExact(head) ?: return
@@ -709,7 +781,6 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         // 현재 표시값 + 누적 delta → 임시 have 계산
         val key = item to country
 
-
         // 합계모드 OFF
         if (!isCountMode.value) {
             viewLifecycleOwner.lifecycleScope.launch {
@@ -749,11 +820,11 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             // 처음 수정하는 항목이면 기준값 저장
             val baseNeeded = currentNeeded
             val baseHave = currentHave
-            val newHave = (currentHave + delta).coerceAtLeast(0)
+            val newHave = (currentHave + delta).coerceAtLeast(baseHave) // ✅ delta < 0 방지 효과
             pending[key] = Pending(baseNeeded, baseHave, newHave)
         } else {
             // 이미 있으면 newHave만 갱신
-            p.newHave = (p.newHave + delta).coerceAtLeast(0)
+            p.newHave = (p.newHave + delta).coerceAtLeast(p.baseNeeded)
         }
         // 리스트 임시값 반영(이미 어댑터에 함수 만들었을 거야)
         adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
@@ -876,11 +947,14 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             .inflate(R.layout.dialog_offmode, null)
 
         val tvTitle = dialogView.findViewById<TextView>(R.id.tvTitle)
+        val tvBase = dialogView.findViewById<TextView>(R.id.tvBase)   // ✅ 추가
+        val tvDelta = dialogView.findViewById<TextView>(R.id.tvDelta) // ✅ 추가
+
         val etOffCount = dialogView.findViewById<EditText>(R.id.etOffCount)
         val btnMinus10 = dialogView.findViewById<Button>(R.id.btnMinus10)
-        val btnMinus1  = dialogView.findViewById<Button>(R.id.btnMinus1)
-        val btnPlus1   = dialogView.findViewById<Button>(R.id.btnPlus1)
-        val btnPlus10  = dialogView.findViewById<Button>(R.id.btnPlus10)
+        val btnMinus1 = dialogView.findViewById<Button>(R.id.btnMinus1)
+        val btnPlus1 = dialogView.findViewById<Button>(R.id.btnPlus1)
+        val btnPlus10 = dialogView.findViewById<Button>(R.id.btnPlus10)
 
         tvTitle.text = "$item ($country)"
 
@@ -894,32 +968,53 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         dlg.setOnShowListener {
             val btnSave = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
 
-            var baseOff = 0  // 현재 offHave
+            var baseOff = 0
 
-            // 1) 현재 offHave 읽어서 기본값 세팅
+            fun refreshDelta() {
+                val target = etOffCount.text.toString().toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val delta = target - baseOff
+                val sign = if (delta > 0) "+" else ""
+                tvDelta.text = "이번 변경: Δ $sign$delta"
+                btnSave.isEnabled = (delta != 0)
+            }
+
+            // 1) 현재값 읽어서 세팅
             viewLifecycleOwner.lifecycleScope.launch {
                 val itemId = itemDao.getItemIdByName(item) ?: return@launch
                 val countryId = itemDao.getCountryIdByName(country) ?: return@launch
 
-                baseOff = itemDao.getOffHave(itemId, countryId)  // 이미 있는 함수
+                baseOff = itemDao.getOffHave(itemId, countryId)
+
+                tvBase.text = "현재 Off: $baseOff"
                 etOffCount.setText(baseOff.toString())
+                refreshDelta()
             }
 
+            // 2) 버튼 조절
             fun adjust(delta: Int) {
                 val cur = etOffCount.text.toString().toIntOrNull() ?: 0
                 val next = (cur + delta).coerceAtLeast(0)
                 etOffCount.setText(next.toString())
+                etOffCount.setSelection(etOffCount.text.length)
+                refreshDelta()
             }
 
             btnMinus10.setOnClickListener { adjust(-10) }
-            btnMinus1.setOnClickListener  { adjust(-1) }
-            btnPlus1.setOnClickListener   { adjust(+1) }
-            btnPlus10.setOnClickListener  { adjust(+10) }
+            btnMinus1.setOnClickListener { adjust(-1) }
+            btnPlus1.setOnClickListener { adjust(+1) }
+            btnPlus10.setOnClickListener { adjust(+10) }
 
-            // 2) 저장 버튼: "목표값 - 현재값" 만큼 한 번에 로그 반영
+            // 3) 키보드로 직접 수정할 때도 Δ 갱신
+            etOffCount.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { refreshDelta() }
+            })
+
+            // 4) 저장: delta 만큼만 반영
             btnSave.setOnClickListener {
                 val target = etOffCount.text.toString().toIntOrNull()?.coerceAtLeast(0) ?: 0
-                val delta = target - baseOff   // +면 증가, -면 감소
+                val delta = target - baseOff
 
                 if (delta == 0) {
                     Toast.makeText(requireContext(), "변경된 수량이 없습니다.", Toast.LENGTH_SHORT).show()
@@ -931,11 +1026,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     val itemId = itemDao.getItemIdByName(item) ?: return@launch
                     val countryId = itemDao.getCountryIdByName(country) ?: return@launch
 
-                    itemDao.addOffDelta(itemId, countryId, delta)  // ✅ 한 번에 처리
+                    itemDao.addOffDelta(itemId, countryId, delta)
 
+                    val sign = if (delta > 0) "+" else ""
                     Toast.makeText(
                         requireContext(),
-                        "Off 수량 ${baseOff} → $target (Δ $delta) 반영",
+                        "현재 $baseOff → 목표 $target (Δ $sign$delta) 반영",
                         Toast.LENGTH_SHORT
                     ).show()
                 }

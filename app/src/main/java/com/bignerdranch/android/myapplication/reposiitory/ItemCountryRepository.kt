@@ -135,7 +135,7 @@ class ItemCountryRepository(
         //기존 have 조회
         val before = dao.getHave(itemId, countryId) ?: 0
         // 업데이트
-        dao.updateQuantity(itemId, countryId, needed, have)
+        dao.updateQuantityClamped(itemId, countryId, needed, have)
 
         // 중거분만 로그
         val delta = have - before
@@ -414,7 +414,7 @@ class ItemCountryRepository(
             dao.insertCrossRefs(listOf(ItemCountryCrossRef(newItemId, newCountryId)))
 
             // 4) 홈 수량/무게/가격 즉시 반영
-            dao.updateQuantity(newItemId, newCountryId, new.needed, new.have)
+            dao.updateQuantityClamped(newItemId, newCountryId, new.needed, new.have)
             dao.updateWeightAndPrice(new.item, new.country, new.weight, new.price.toFloat())
 
             // ---------------------------
@@ -429,15 +429,14 @@ class ItemCountryRepository(
                     // 5) 로그/ACK 이사
                     dao.migrateQuantityLogs(oldItemId, oldCountryId, newItemId, newCountryId)
                     dao.migrateAdditionLogs(oldItemId, oldCountryId, newItemId, newCountryId)
-                    dao.migratePredictionAcks(oldItemId, newItemId)
 
-                    // 6) OFF 값/최근 클릭시간도 이사 (네 dao에 이미 함수들 있음)
                     val oldAck = dao.getPredictionAck(oldItemId)
-                    if (oldAck != null) {
-                        val newAck = dao.getPredictionAck(newItemId)
-                        val mergedAckAt = maxOf(oldAck.ackAt, newAck?.ackAt ?: 0L)
+                    val newAck = dao.getPredictionAck(newItemId)
+
+                    if (oldAck != null || newAck != null) {
+                        val mergedAckAt = maxOf(oldAck?.ackAt ?: 0L, newAck?.ackAt ?: 0L)
                         dao.upsertPredictionAck(PredictionAckEntity(itemId = newItemId, ackAt = mergedAckAt))
-                        dao.deletePredictionAck(oldItemId)
+                        if (oldAck != null) dao.deletePredictionAck(oldItemId)
                     }
 
                     val oldLast = dao.getLastClickedAt(oldItemId, oldCountryId)

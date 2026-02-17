@@ -191,7 +191,6 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
                     preview.addView(TextView(itemView.context).apply {
                         text = "아이템 없음"
                         textSize = 14f
-                        setTextColor(0xFF666666.toInt())
                         setPadding(0, 4, 0, 4)
                     })
                 } else {
@@ -200,7 +199,6 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
                         preview.addView(TextView(itemView.context).apply {
                             text = "- $name"
                             textSize = 14f
-                            setTextColor(0xFF333333.toInt())
                             setPadding(0, 4, 0, 4)
                         })
                     }

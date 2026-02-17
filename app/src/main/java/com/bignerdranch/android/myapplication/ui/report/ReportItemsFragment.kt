@@ -3,13 +3,9 @@ package com.bignerdranch.android.myapplication.ui.report
 import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.widget.ArrayAdapter
-import androidx.appcompat.widget.SearchView
 import android.widget.TextView
 import androidx.annotation.RequiresApi
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
+import androidx.appcompat.widget.SearchView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
@@ -21,10 +17,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.google.android.material.datepicker.MaterialDatePicker
-import com.google.android.material.textfield.MaterialAutoCompleteTextView
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
@@ -169,39 +164,47 @@ class ReportItemsFragment : Fragment(R.layout.fragment_report_items) {
         val selKg = selectedRows.sumOf { it.totalKg }
         val selPrice = selectedRows.sumOf { it.totalPrice }
 
+        String.format(Locale.KOREA, "%,d", totalCnt)
+        String.format(Locale.KOREA, "%,d", totalPrice)
+        String.format(Locale.KOREA, "%,.2fkg", totalKg)
+
         fun ratio(part: Double, total: Double): String =
             if (total > 0) String.format(Locale.KOREA, "%.1f%%", (part / total) * 100) else "-"
 
+        val cntRatio   = ratio(selCnt.toDouble(), totalCnt.toDouble())
+        val kgRatio    = ratio(selKg, totalKg)
+        val priceRatio = ratio(selPrice.toDouble(), totalPrice.toDouble())
+
         // 1줄: 개수 + 무게
         val line1 = buildString {
-            append("총 ${totalCnt}개")
+            append("총 ${String.format(Locale.KOREA, "%,d", totalCnt)}개")
             if (selCnt > 0)
-                append(" (선택 ${selCnt}개, ${ratio(selKg, totalKg)})")
+                append(" (선택 ${String.format(Locale.KOREA, "%,d", selCnt)}개/ $cntRatio)")
 
             append(" · ")
 
-            append(String.format(Locale.KOREA, "%.2fkg", totalKg))
+            append(String.format(Locale.KOREA, "%,.2fkg", totalKg))
             if (selKg > 0)
                 append(
                     String.format(
                         Locale.KOREA,
-                        " (선택 %.2fkg, %s)",
+                        " (선택 %,.2fkg/ %s)",
                         selKg,
-                        ratio(selKg, totalKg)
+                        kgRatio
                     )
                 )
         }
 
         // 2줄: 가격
         val line2 = buildString {
-            append(String.format(Locale.KOREA, "총 ₩%,d", totalPrice))
+            append(String.format(Locale.KOREA, "총 %,d", totalPrice))
             if (selPrice > 0)
                 append(
                     String.format(
                         Locale.KOREA,
-                        " (선택 ₩%,d, %s)",
+                        " (선택 %,d/ %s)",
                         selPrice,
-                        ratio(selKg, totalKg) // ✅ 무게 기준 비율 유지
+                        priceRatio
                     )
                 )
         }

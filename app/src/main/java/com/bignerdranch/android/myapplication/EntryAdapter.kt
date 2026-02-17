@@ -279,6 +279,7 @@ class EntryAdapter(
                 val btnPlus = chipView.findViewById<ImageButton>(R.id.btnPlus)
                 val tvPrice = chipView.findViewById<TextView>(R.id.tvPrice)
 
+
                 tvPrice.text = if (r.price > 0) "%,d".format(r.price) else ""
 
                 // 현재 모드 기준으로 (item,country) 키 만들기
@@ -292,11 +293,20 @@ class EntryAdapter(
                 // 임시 have 값이 있으면 그걸 표시, 없으면 원래 r.have
                 val displayHave = tempHave[key] ?: baseHave
 
+                val canMinus = if (showOffHave) {
+                    displayHave > 0                 // OFF 모드는 0까지 감소 가능
+                } else {
+                    displayHave > baseHave          // ✅ 저장 모드는 baseHave 아래로 감소 금지 (Δ<0 방지)
+                }
+                btnMinus.isEnabled = canMinus
+                btnMinus.alpha = if (canMinus) 1f else 0.3f
+
+
                 val labelPrefix = if (showOffHave) "O" else "S"
                 // (선택) 임시 증감도 같이 보여주고 싶으면 extra 붙이기
                 val extra = tempHave[key]?.let { v -> if (v != baseHave) " (${v - baseHave})" else "" } ?: "(0)"
                 if (!tempIsCountryMode) {
-                    tv.text = "${r.name} (N:${r.needed}, $labelPrefix:${displayHave})$extra"
+                    tv.text = "${r.name} (N:${r.needed}, $labelPrefix:${displayHave})"
                 } else{
                     tv.text = "${r.name} \n (N:${r.needed}, $labelPrefix:${displayHave})$extra"
                 }
@@ -304,7 +314,8 @@ class EntryAdapter(
                 updateDots(tvDots, displayHave, r.needed)
 
                 btnMinus.setOnClickListener {
-                    onDelta(head, r, -1)   // 👈 HomeFragment 쪽에서 pending 반영
+                    if (!canMinus) return@setOnClickListener
+                    onDelta(head, r, -1)
                 }
                 btnPlus.setOnClickListener {
                     onDelta(head, r, +1)
