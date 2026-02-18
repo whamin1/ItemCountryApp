@@ -33,7 +33,7 @@ import java.util.concurrent.Executors
         SheetLineEntity::class,
         PredictionAckEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -235,6 +235,13 @@ WHERE countryId IS NOT NULL AND (weightAt IS NULL OR weightAt = 0)
             }
         }
 
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE quantity_log ADD COLUMN trashedAt INTEGER")
+                // 기본 null이라 별도 업데이트 필요 없음
+            }
+        }
+
 
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
@@ -266,7 +273,8 @@ WHERE countryId IS NOT NULL AND (weightAt IS NULL OR weightAt = 0)
                         MIGRATION_19_20,
                         MIGRATION_20_21,
                         MIGRATION_21_22,
-                        MIGRATION_22_23
+                        MIGRATION_22_23,
+                        MIGRATION_23_24
                     )
                     .build()
                     .also { INSTANCE = it }

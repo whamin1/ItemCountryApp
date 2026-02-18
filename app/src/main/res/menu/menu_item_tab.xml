@@ -39,4 +39,14 @@
         android:id="@+id/action_production_report"
         android:title="생산 보고서"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_toggle_trash"
+        android:title="휴지통 보기"
+        android:checkable="true"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_empty_trash"
+        android:title="휴지통 비우기"
+        app:showAsAction="never" />
 </menu>

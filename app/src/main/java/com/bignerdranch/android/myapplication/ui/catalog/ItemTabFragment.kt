@@ -62,6 +62,8 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     private var lastBulkPrevMinute: Int? = null
     private var lastWasBulk: Boolean = false
 
+    private var showTrash = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
@@ -132,6 +134,41 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                     findNavController().navigate(R.id.reportEntryFragment)
                     true
                 }
+                R.id.action_toggle_trash -> {
+                    item.isChecked = !item.isChecked
+                    showTrash = item.isChecked
+
+                    // 휴지통 모드일 때 subtitle 살짝 표시
+                    if (showTrash) {
+                        Toast.makeText(requireContext(), "휴지통 보기 ON", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), "휴지통 보기 OFF", Toast.LENGTH_SHORT).show()
+                    }
+
+                    reloadRows()
+                    true
+                }
+
+                R.id.action_empty_trash -> {
+                    if (!showTrash) {
+                        Toast.makeText(requireContext(), "휴지통 보기에서만 비울 수 있어", Toast.LENGTH_SHORT).show()
+                        return@setOnMenuItemClickListener true
+                    }
+
+                    androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                        .setTitle("휴지통 비우기")
+                        .setMessage("휴지통의 로그를 영구 삭제할까요?\n(되돌릴 수 없음)")
+                        .setPositiveButton("삭제") { _, _ ->
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                dao.deleteAllTrashedLogs()
+                                reloadRows()
+                                Toast.makeText(requireContext(), "휴지통 비움 완료", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .setNegativeButton("취소", null)
+                        .show()
+                    true
+                }
                 else -> false
             }
         }
@@ -185,7 +222,11 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
             holder.itemView.setOnClickListener {
                 val pos = holder.bindingAdapterPosition
                 if (pos == RecyclerView.NO_POSITION) return@setOnClickListener
-                showEditDialog(data[pos])   // ✅ QuantityRow 수정 다이얼로그
+                if (showTrash) {
+                    Toast.makeText(requireContext(), "휴지통에서는 편집 불가(복원 후 편집)", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                showEditDialog(data[pos])
             }
 
             holder.itemView.setOnLongClickListener {
@@ -193,25 +234,45 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
                 if (realPos == RecyclerView.NO_POSITION) return@setOnLongClickListener true
                 val row = data[realPos]
 
+                val title = if (showTrash) "로그 복원" else "휴지통으로 이동"
+                val message = if (showTrash) {
+                    "${row.item} · ${row.country}\n이 로그를 복원할까요?"
+                } else {
+                    "${row.item} · ${row.country}\n휴지통으로 보낼까요?"
+                }
+
                 androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                    .setTitle("로그 삭제")
-                    .setMessage("${row.item} · ${row.country}\n 이 로그를 삭제할까요?")
-                    .setPositiveButton("삭제") { _, _ ->
+                    .setTitle(title)
+                    .setMessage(message)
+                    .setPositiveButton(if (showTrash) "복원" else "휴지통") { _, _ ->
                         viewLifecycleOwner.lifecycleScope.launch {
-                            try {
-                                dao.deleteQuantityLogById(row.id)
-                                data.removeAt(realPos)
-                                notifyItemRemoved(realPos)
-                            } catch (e: Exception) {
-                            e.printStackTrace()
+                            if (showTrash) {
+                                dao.restoreLogFromTrash(row.id)
+                                Snackbar.make(requireView(), "복원됨", Snackbar.LENGTH_LONG)
+                                    .setAction("UNDO") {
+                                        viewLifecycleOwner.lifecycleScope.launch {
+                                            dao.moveLogToTrash(row.id, System.currentTimeMillis())
+                                            reloadRows()
+                                        }
+                                    }.show()
+                            } else {
+                                dao.moveLogToTrash(row.id, System.currentTimeMillis())
+                                Snackbar.make(requireView(), "휴지통으로 이동됨", Snackbar.LENGTH_LONG)
+                                    .setAction("UNDO") {
+                                        viewLifecycleOwner.lifecycleScope.launch {
+                                            dao.restoreLogFromTrash(row.id)
+                                            reloadRows()
+                                        }
+                                    }.show()
                             }
+                            reloadRows()
                         }
                     }
                     .setNegativeButton("취소", null)
                     .show()
+
                 true
             }
-
         }
     }
 
@@ -589,10 +650,12 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
             .show()
     }
 
+
+
     private fun reloadRows() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val rows = dao.getRecentPlusClicks(20000)
-                .filter { it.delta > 0 }
+            val rows = if (showTrash) dao.getTrashedPlusClicks(20000)
+            else dao.getRecentPlusClicks(20000)
             allRows = rows
             applyFilter()
         }

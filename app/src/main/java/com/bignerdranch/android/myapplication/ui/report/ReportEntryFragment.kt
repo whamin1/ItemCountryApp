@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.ui.report
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -18,6 +19,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.appcompat.widget.SearchView
+import androidx.core.content.FileProvider
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
@@ -26,13 +28,15 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.datepicker.MaterialDatePicker
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.util.*
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
 
@@ -40,16 +44,18 @@ class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
     private val fmt = SimpleDateFormat("yyyy.MM.dd", Locale.KOREA)
     private lateinit var recycler: RecyclerView
     private lateinit var adapter: ReportDayAdapter
-
     @RequiresApi(Build.VERSION_CODES.O)
     private val KST = ZoneId.of("Asia/Seoul")
     private val vm: ItemCountryViewModel by activityViewModels()
     private val dao: ItemCountryDao by lazy { AppDatabase.get(requireContext()).itemCountryDao() }
-
     private var cachedAllItems: List<String> = emptyList()
-
     private val DAY_MS = 86_400_000L
     private val KST_OFFSET_MS = 32_400_000L // +9h
+    private var cachedDayRows: List<ItemCountryDao.ReportDayAggRow> = emptyList()
+    private var cachedSelectedNames: Set<String> = emptySet()
+    private var cachedSelectedRows: List<ItemCountryDao.SelectedItemAggRow> = emptyList()
+    private var cachedSelAgg: ItemCountryDao.SelectedAgg? = null
+    private var cachedPeriod: ReportPeriod? = null
 
     private fun dayIndexToRange(dayIndexKst: Long): Pair<Long, Long> {
         val start = dayIndexKst * DAY_MS - KST_OFFSET_MS
@@ -83,6 +89,10 @@ class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
         }
         view.findViewById<MaterialButton>(R.id.btnDetail).setOnClickListener {
             findNavController().navigate(R.id.action_reportEntryFragment_to_reportItemsFragment)
+        }
+        view.findViewById<MaterialButton>(R.id.btnExport).setOnClickListener {
+            val p = cachedPeriod ?: return@setOnClickListener
+            exportReportToZipCsv(p.from, p.to, cachedDayRows, cachedSelectedNames, cachedSelectedRows, cachedSelAgg)
         }
 
         recycler = view.findViewById(R.id.recycler)
@@ -174,6 +184,11 @@ class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
 
                         adapter.submit(merged)
                         renderSummary(merged, selAgg, selectedNames, selectedRows)  // ✅ 이게 맞는 호출
+                        cachedPeriod = p
+                        cachedDayRows = merged
+                        cachedSelectedNames = selectedNames
+                        cachedSelectedRows = selectedRows
+                        cachedSelAgg = selAgg
                     }
             }
         }
@@ -338,5 +353,189 @@ class ReportEntryFragment : Fragment(R.layout.fragment_report_entry) {
                 reportVm.forceRefresh()
             }
             .show()
+    }
+
+    //엑셀
+    private fun exportReportToZipCsv(
+        periodFrom: Long,
+        periodTo: Long,
+        dayRows: List<ItemCountryDao.ReportDayAggRow>,
+        selectedNames: Set<String>,
+        selectedRows: List<ItemCountryDao.SelectedItemAggRow>,
+        selAgg: ItemCountryDao.SelectedAgg?
+    ) {
+        viewLifecycleOwner.lifecycleScope.launch {
+
+            val logs = if (selectedNames.isEmpty()) {
+                dao.getPlusClicksInPeriod(periodFrom, periodTo) // 선택 없으면 전체
+            } else {
+                dao.getPlusClicksInPeriodExcludingItems(
+                    periodFrom,
+                    periodTo,
+                    selectedNames.toList()
+                )
+            }
+
+            val f1 = SimpleDateFormat("yyyyMMdd", Locale.KOREA).format(Date(periodFrom))
+            val f2 = SimpleDateFormat("yyyyMMdd", Locale.KOREA).format(Date(periodTo))
+
+            val zipName = "report_${f1}_${f2}.zip"
+            val zipFile = File(requireContext().cacheDir, zipName)
+
+            ZipOutputStream(zipFile.outputStream()).use { zos ->
+
+                // ---------------- SUMMARY.csv ----------------
+                zos.putNextEntry(ZipEntry("SUMMARY.csv"))
+                val summaryCsv = buildSummaryCsv(
+                    periodFrom, periodTo,
+                    dayRows, selectedNames,
+                    selectedRows, selAgg
+                )
+                zos.write("\uFEFF".toByteArray(Charsets.UTF_8))
+                zos.write(summaryCsv.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // ---------------- DAILY.csv ----------------
+                zos.putNextEntry(ZipEntry("DAILY.csv"))
+                val dailyCsv = buildDailyCsv(dayRows)
+                zos.write("\uFEFF".toByteArray(Charsets.UTF_8))
+                zos.write(dailyCsv.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // ---------------- LOGS.csv ----------------
+                zos.putNextEntry(ZipEntry("LOGS.csv"))
+                val logsCsv = buildLogsCsv(logs, selectedNames)
+                zos.write("\uFEFF".toByteArray(Charsets.UTF_8))
+                zos.write(logsCsv.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+
+            val uri = FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                zipFile
+            )
+
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/zip"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            startActivity(Intent.createChooser(intent, "리포트 ZIP 공유"))
+        }
+    }
+
+    private fun buildSummaryCsv(
+        from: Long,
+        to: Long,
+        dayRows: List<ItemCountryDao.ReportDayAggRow>,
+        selectedNames: Set<String>,
+        selectedRows: List<ItemCountryDao.SelectedItemAggRow>,
+        selAgg: ItemCountryDao.SelectedAgg?
+    ): String {
+
+        val totalKg = dayRows.sumOf { it.totalKg }
+        val itemKg = dayRows.sumOf { it.itemKg }
+        val wasteKg = dayRows.sumOf { it.wasteKg }
+
+        val totalCnt = dayRows.sumOf { it.totalCnt }
+        val itemCnt = dayRows.sumOf { it.itemCnt }
+        val wasteCnt = dayRows.sumOf { it.wasteCnt }
+
+        val totalPrice = dayRows.sumOf { it.totalPrice }
+
+        fun ratio(x: Double): String =
+            if (totalKg > 0) String.format(Locale.KOREA, "%.1f%%", x / totalKg * 100) else "-"
+
+        return buildString {
+
+            appendLine("기간,${fmt.format(Date(from))} ~ ${fmt.format(Date(to))}")
+            appendLine()
+
+            appendLine("총 무게(kg),$totalKg")
+            appendLine("총 개수,$totalCnt")
+            appendLine("총 가격,$totalPrice")
+            appendLine()
+
+            appendLine("아이템 무게(kg),$itemKg (${ratio(itemKg)})")
+            appendLine("아이템 개수,$itemCnt")
+            appendLine("쓰레기 무게(kg),$wasteKg (${ratio(wasteKg)})")
+            appendLine("쓰레기 개수,$wasteCnt")
+
+            if (selectedRows.isNotEmpty()) {
+                appendLine()
+                appendLine("선택 아이템 상세")
+                appendLine("item,kg,cnt,price")
+                selectedRows.forEach {
+                    appendLine("${csv(it.item)},${it.kg},${it.cnt},${it.price}")
+                }
+            }
+        }
+    }
+
+    private fun buildDailyCsv(
+        dayRows: List<ItemCountryDao.ReportDayAggRow>
+    ): String {
+
+        val DAY_MS = 86_400_000L
+        val KST_OFFSET_MS = 32_400_000L
+        val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.KOREA)
+
+        fun dayIndexToStartMs(d: Long) = d * DAY_MS - KST_OFFSET_MS
+
+        return buildString {
+            appendLine("date,totalKg,itemKg,wasteKg,totalCnt,itemCnt,wasteCnt,totalPrice,selKg,selCnt,selPrice")
+
+            dayRows.forEach { d ->
+                val dateStr = dayFmt.format(Date(dayIndexToStartMs(d.dayIndexKst)))
+                appendLine(
+                    "$dateStr," +
+                            "${d.totalKg}," +
+                            "${d.itemKg}," +
+                            "${d.wasteKg}," +
+                            "${d.totalCnt}," +
+                            "${d.itemCnt}," +
+                            "${d.wasteCnt}," +
+                            "${d.totalPrice}," +
+                            "${d.selKg}," +
+                            "${d.selCnt}," +
+                            "${d.selPrice}"
+                )
+            }
+        }
+    }
+
+    private fun buildLogsCsv(
+        logs: List<ItemCountryDao.QuantityRow>,
+        selectedNames: Set<String>
+    ): String {
+
+        val tFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.KOREA)
+
+        return buildString {
+            appendLine("NOTE,LOGS excludes selected items: ${selectedNames.joinToString("|")}")
+            appendLine("time,item,country,fromHave,toHave,delta,weightAt,priceAt")
+
+            logs.forEach { q ->
+                appendLine(
+                    "${tFmt.format(Date(q.timestamp))}," +
+                            "${csv(q.item)}," +
+                            "${csv(q.country)}," +
+                            "${q.fromHave}," +
+                            "${q.toHave}," +
+                            "${q.delta}," +
+                            "${q.weight ?: 0}," +
+                            "${q.price ?: 0}"
+                )
+            }
+        }
+    }
+
+    private fun csv(v: Any?): String {
+        val s = (v?.toString() ?: "")
+        val needsQuote = s.contains(",") || s.contains("\n") || s.contains("\r") || s.contains("\"")
+        val escaped = s.replace("\"", "\"\"")
+        return if (needsQuote) "\"$escaped\"" else escaped
     }
 }

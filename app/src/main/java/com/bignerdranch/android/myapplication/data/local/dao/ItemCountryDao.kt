@@ -391,10 +391,128 @@ LEFT JOIN items i ON i.id = q.itemId
 LEFT JOIN countries c ON c.id = q.countryId
 WHERE q.delta > 0
   AND COALESCE(q.batchId, 0) = 0
+  AND q.trashedAt IS NULL
 ORDER BY q.timestamp DESC, q.id DESC
 LIMIT :limit
 """)
     suspend fun getRecentPlusClicks(limit: Int = 20000): List<QuantityRow>
+
+    @Query("""
+SELECT
+  q.id AS id,
+  COALESCE(q.itemName, i.name, '(deleted)') AS item,
+  COALESCE(q.countryName, c.name, '(deleted)') AS country,
+  q.fromHave AS fromHave,
+  q.toHave AS toHave,
+  q.delta AS delta,
+  q.timestamp AS timestamp,
+  COALESCE(q.batchId, 0) AS batchId,
+  q.weightAt AS weight,
+  q.priceAt AS price
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+LEFT JOIN countries c ON c.id = q.countryId
+WHERE q.delta > 0
+  AND COALESCE(q.batchId, 0) = 0
+  AND q.trashedAt IS NOT NULL
+ORDER BY q.trashedAt DESC
+LIMIT :limit
+""")
+    suspend fun getTrashedPlusClicks(limit: Int = 20000): List<QuantityRow>
+
+    @Query("""
+SELECT
+q.id AS id,
+COALESCE(q.itemName, i.name, '(deleted)') AS item,
+COALESCE(q.countryName, c.name, '(deleted)') AS country,
+q.fromHave AS fromHave,
+q.toHave AS toHave,
+q.delta AS delta,
+q.timestamp AS timestamp,
+COALESCE(q.batchId, 0) AS batchId,
+q.weightAt AS weight,
+q.priceAt AS price
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+LEFT JOIN countries c ON c.id = q.countryId
+WHERE q.delta > 0
+AND COALESCE(q.batchId, 0) = 0
+AND q.trashedAt IS NULL
+AND q.timestamp BETWEEN :from AND :to
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) <> '쓰레기'
+ORDER BY q.timestamp ASC, q.id ASC
+""")
+    suspend fun getPlusClicksInPeriod(from: Long, to: Long): List<QuantityRow>
+
+    @Query("""
+SELECT
+q.id AS id,
+COALESCE(q.itemName, i.name, '(deleted)') AS item,
+COALESCE(q.countryName, c.name, '(deleted)') AS country,
+q.fromHave AS fromHave,
+q.toHave AS toHave,
+q.delta AS delta,
+q.timestamp AS timestamp,
+COALESCE(q.batchId, 0) AS batchId,
+q.weightAt AS weight,
+q.priceAt AS price
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+LEFT JOIN countries c ON c.id = q.countryId
+WHERE q.delta > 0
+AND COALESCE(q.batchId, 0) = 0
+AND q.trashedAt IS NULL
+AND q.timestamp BETWEEN :from AND :to
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) IN (:itemNames)
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) <> '쓰레기'
+ORDER BY q.timestamp ASC, q.id ASC
+""")
+    suspend fun getPlusClicksInPeriodForItems(
+        from: Long,
+        to: Long,
+        itemNames: List<String>
+    ): List<QuantityRow>
+
+    @Query("""
+SELECT
+q.id AS id,
+COALESCE(q.itemName, i.name, '(deleted)') AS item,
+COALESCE(q.countryName, c.name, '(deleted)') AS country,
+q.fromHave AS fromHave,
+q.toHave AS toHave,
+q.delta AS delta,
+q.timestamp AS timestamp,
+COALESCE(q.batchId, 0) AS batchId,
+q.weightAt AS weight,
+q.priceAt AS price
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+LEFT JOIN countries c ON c.id = q.countryId
+WHERE q.delta > 0
+AND COALESCE(q.batchId, 0) = 0
+AND q.trashedAt IS NULL
+AND q.timestamp BETWEEN :from AND :to
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) NOT IN (:itemNames)
+AND TRIM(COALESCE(NULLIF(q.itemName,''), i.name, '')) <> '쓰레기'
+ORDER BY q.timestamp ASC, q.id ASC
+""")
+    suspend fun getPlusClicksInPeriodExcludingItems(
+        from: Long,
+        to: Long,
+        itemNames: List<String>
+    ): List<QuantityRow>
+
+    // 휴지통으로 이동
+    @Query("UPDATE quantity_log SET trashedAt = :now WHERE id = :id")
+    suspend fun moveLogToTrash(id: Long, now: Long)
+
+    // 복원
+    @Query("UPDATE quantity_log SET trashedAt = NULL WHERE id = :id")
+    suspend fun restoreLogFromTrash(id: Long)
+
+    // 휴지통 비우기(영구삭제)
+    @Query("DELETE FROM quantity_log WHERE trashedAt IS NOT NULL")
+    suspend fun deleteAllTrashedLogs()
 
     @Query("""
 UPDATE quantity_log
@@ -1325,9 +1443,6 @@ LIMIT 1
         )
         return insertQuantityLog(fixed)
     }
-
-
-
 
     data class NameSnap(val itemName: String, val countryName: String?)
 

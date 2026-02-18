@@ -1,5 +1,6 @@
 package com.bignerdranch.android.myapplication.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -14,9 +15,10 @@ data class QuantityLogEntity (
     val timestamp: Long = 0L, // System.currentTimeMillis()
     val batchId: Long? = null,
     val archived: Int = 0,
-    // ✅ 스냅샷 (추가)
     val itemName: String? = null,
     val countryName: String? = null,
     val priceAt: Int? = null,
     val weightAt: Float? = null,
+    @ColumnInfo(name = "trashedAt")
+    val trashedAt: Long? = null
 )
