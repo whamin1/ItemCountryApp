@@ -7,4 +7,11 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="report_increase">#2E7D32</color>
+    <color name="report_decrease">#C94F4F</color>
+    <color name="home_count_short">#C94F4F</color>
+    <color name="home_count_met">#2E7D32</color>
+    <color name="home_count_over">#C46A16</color>
+    <color name="splash_background">#F2EAFF</color>
+    <color name="launcher_background">#4B237D</color>
 </resources>

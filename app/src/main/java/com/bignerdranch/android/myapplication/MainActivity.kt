@@ -2,10 +2,13 @@ package com.bignerdranch.android.myapplication
 
 import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -64,6 +67,28 @@ class MainActivity : AppCompatActivity() {
         // 메뉴 id와 fragment id가 일치하므로 한 줄로 연결 가능
         bottomNav.setupWithNavController(navController)
     }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            val focusedView = currentFocus
+
+            if (focusedView is EditText) {
+                val rect = Rect()
+                focusedView.getGlobalVisibleRect(rect)
+
+                if (!rect.contains(event.rawX.toInt(), event.rawY.toInt())) {
+                    focusedView.clearFocus()
+
+                    val keyboard = getSystemService(Context.INPUT_METHOD_SERVICE)
+                            as InputMethodManager
+                    keyboard.hideSoftInputFromWindow(focusedView.windowToken, 0)
+                }
+            }
+        }
+
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {

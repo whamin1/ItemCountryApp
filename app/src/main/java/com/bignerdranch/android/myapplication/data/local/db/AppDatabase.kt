@@ -10,6 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.entity.AdditionLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
+import com.bignerdranch.android.myapplication.data.local.entity.CategoryEntity
+import com.bignerdranch.android.myapplication.data.local.entity.ItemCategoryAssignmentEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.PredictionAckEntity
@@ -31,9 +33,11 @@ import java.util.concurrent.Executors
         SaveSessionLineEntity::class,
         SheetEntity::class,
         SheetLineEntity::class,
-        PredictionAckEntity::class
+        PredictionAckEntity::class,
+        CategoryEntity::class,
+        ItemCategoryAssignmentEntity::class
     ],
-    version = 24,
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -242,6 +246,175 @@ WHERE countryId IS NOT NULL AND (weightAt IS NULL OR weightAt = 0)
             }
         }
 
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS item_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_item_categories_name " +
+                            "ON item_categories(name)"
+                )
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS item_category_assignments (
+                        itemId INTEGER NOT NULL,
+                        categoryId INTEGER NOT NULL,
+                        PRIMARY KEY(itemId),
+                        FOREIGN KEY(itemId) REFERENCES items(id) ON DELETE CASCADE,
+                        FOREIGN KEY(categoryId) REFERENCES item_categories(id) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_item_category_assignments_categoryId " +
+                            "ON item_category_assignments(categoryId)"
+                )
+            }
+        }
+
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS item_category_assignments_new (
+                        itemName TEXT NOT NULL,
+                        categoryId INTEGER NOT NULL,
+                        PRIMARY KEY(itemName),
+                        FOREIGN KEY(categoryId) REFERENCES item_categories(id) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT OR REPLACE INTO item_category_assignments_new(itemName, categoryId)
+                    SELECT i.name, a.categoryId
+                    FROM item_category_assignments a
+                    JOIN items i ON i.id = a.itemId
+                """.trimIndent())
+                db.execSQL("DROP TABLE item_category_assignments")
+                db.execSQL(
+                    "ALTER TABLE item_category_assignments_new " +
+                            "RENAME TO item_category_assignments"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_item_category_assignments_categoryId " +
+                            "ON item_category_assignments(categoryId)"
+                )
+            }
+        }
+
+        /**
+         * 같은 이름으로 여러 번 생성된 items 행을 가장 오래된 ID 하나로 합친다.
+         * 수량/로그/예측 확인 기록을 대표 ID로 이동한 뒤 이름 UNIQUE 인덱스를 추가한다.
+         */
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TEMP TABLE item_id_map (
+                        oldId INTEGER NOT NULL PRIMARY KEY,
+                        keepId INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO item_id_map(oldId, keepId)
+                    SELECT i.id, (
+                        SELECT MIN(i2.id)
+                        FROM items i2
+                        WHERE i2.name = i.name
+                    )
+                    FROM items i
+                """.trimIndent())
+
+                // 같은 (대표 아이템, 나라) 연결이 충돌할 수 있어 임시 테이블에서 한 행으로 병합한다.
+                db.execSQL("""
+                    CREATE TEMP TABLE item_country_merged AS
+                    SELECT
+                        m.keepId AS itemId,
+                        ic.countryId AS countryId,
+                        COALESCE(
+                            MAX(CASE WHEN ic.itemId = m.keepId THEN ic.needed END),
+                            MAX(ic.needed), 0
+                        ) AS needed,
+                        COALESCE(
+                            MAX(CASE WHEN ic.itemId = m.keepId THEN ic.have END),
+                            MAX(ic.have), 0
+                        ) AS have,
+                        COALESCE(
+                            MAX(CASE WHEN ic.itemId = m.keepId THEN ic.weight END),
+                            MAX(ic.weight), 0
+                        ) AS weight,
+                        COALESCE(
+                            MAX(CASE WHEN ic.itemId = m.keepId THEN ic.price END),
+                            MAX(ic.price), 0
+                        ) AS price,
+                        MAX(ic.lastClickedAt) AS lastClickedAt,
+                        COALESCE(
+                            MAX(CASE WHEN ic.itemId = m.keepId THEN ic.enabled END),
+                            MAX(ic.enabled), 1
+                        ) AS enabled
+                    FROM item_country ic
+                    JOIN item_id_map m ON m.oldId = ic.itemId
+                    GROUP BY m.keepId, ic.countryId
+                """.trimIndent())
+                db.execSQL("DELETE FROM item_country")
+                db.execSQL("""
+                    INSERT INTO item_country(
+                        itemId, countryId, needed, have, weight, price, lastClickedAt, enabled
+                    )
+                    SELECT
+                        itemId, countryId, needed, have, weight, price, lastClickedAt, enabled
+                    FROM item_country_merged
+                """.trimIndent())
+
+                // 로그는 삭제하지 않고 모두 대표 아이템 ID로 보존한다.
+                db.execSQL("""
+                    UPDATE quantity_log
+                    SET itemId = (
+                        SELECT keepId FROM item_id_map WHERE oldId = quantity_log.itemId
+                    )
+                    WHERE itemId IN (
+                        SELECT oldId FROM item_id_map WHERE oldId != keepId
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    UPDATE addition_log
+                    SET itemId = (
+                        SELECT keepId FROM item_id_map WHERE oldId = addition_log.itemId
+                    )
+                    WHERE itemId IN (
+                        SELECT oldId FROM item_id_map WHERE oldId != keepId
+                    )
+                """.trimIndent())
+
+                // prediction_ack는 PK 충돌을 피하면서 가장 최신 시간을 남긴다.
+                db.execSQL("""
+                    CREATE TEMP TABLE prediction_ack_merged AS
+                    SELECT COALESCE(m.keepId, p.itemId) AS itemId, MAX(p.ackAt) AS ackAt
+                    FROM prediction_ack p
+                    LEFT JOIN item_id_map m ON m.oldId = p.itemId
+                    GROUP BY COALESCE(m.keepId, p.itemId)
+                """.trimIndent())
+                db.execSQL("DELETE FROM prediction_ack")
+                db.execSQL("""
+                    INSERT INTO prediction_ack(itemId, ackAt)
+                    SELECT itemId, ackAt FROM prediction_ack_merged
+                """.trimIndent())
+
+                db.execSQL("""
+                    DELETE FROM items
+                    WHERE id IN (
+                        SELECT oldId FROM item_id_map WHERE oldId != keepId
+                    )
+                """.trimIndent())
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_items_name ON items(name)"
+                )
+
+                db.execSQL("DROP TABLE prediction_ack_merged")
+                db.execSQL("DROP TABLE item_country_merged")
+                db.execSQL("DROP TABLE item_id_map")
+            }
+        }
+
 
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
@@ -274,7 +447,10 @@ WHERE countryId IS NOT NULL AND (weightAt IS NULL OR weightAt = 0)
                         MIGRATION_20_21,
                         MIGRATION_21_22,
                         MIGRATION_22_23,
-                        MIGRATION_23_24
+                        MIGRATION_23_24,
+                        MIGRATION_24_25,
+                        MIGRATION_25_26,
+                        MIGRATION_26_27
                     )
                     .build()
                     .also { INSTANCE = it }

@@ -278,7 +278,6 @@ class SheetCountriesFragment : Fragment(R.layout.fragment_country_list) {
 
     }
 
-    //나라 삭제
     private fun confirmDeleteCountry(country: String) {
         val sheetId = requireArguments().getLong("sheetId")
 

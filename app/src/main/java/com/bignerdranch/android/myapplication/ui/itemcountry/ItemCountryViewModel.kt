@@ -13,6 +13,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineE
 import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
+import com.bignerdranch.android.myapplication.repository.BulkSheetLineInput
+import com.bignerdranch.android.myapplication.repository.BulkSheetSyncSummary
 import com.bignerdranch.android.myapplication.repository.ReportPrefRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -210,8 +212,9 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
 
     val sheets: Flow<List<SheetEntity>> = repo.observeSheets()
 
-    fun createSheet(title: String, lines: List<SheetLineEntity>) = viewModelScope.launch {
+    suspend fun createSheet(title: String, lines: List<SheetLineEntity>) {
         repo.createSheet(title, lines)
+        refreshPredictions()
     }
 
     fun applySheet(sheetId: Long) = viewModelScope.launch {
@@ -233,6 +236,22 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun getNextSortOrder(sheetId: Long): Int =
         repo.getMaxSortOrder(sheetId) + 1
 
+    suspend fun previewBulkSheetLines(
+        sheetId: Long,
+        country: String,
+        inputs: List<BulkSheetLineInput>
+    ): BulkSheetSyncSummary = repo.previewBulkSheetLines(sheetId, country, inputs)
+
+    suspend fun applyBulkSheetLines(
+        sheetId: Long,
+        country: String,
+        inputs: List<BulkSheetLineInput>
+    ): BulkSheetSyncSummary {
+        val result = repo.applyBulkSheetLines(sheetId, country, inputs)
+        refreshPredictions()
+        return result
+    }
+
     fun updateSheetLine(line: SheetLineEntity) = viewModelScope.launch {
         repo.updateSheetLine(line)
     }
@@ -242,8 +261,9 @@ class ItemCountryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // (선택) 추가
-    fun insertSheetLine(sheetId: Long, line: SheetLineEntity) = viewModelScope.launch {
+    suspend fun insertSheetLine(sheetId: Long, line: SheetLineEntity) {
         repo.insertSheetLine(sheetId, line)
+        refreshPredictions()
     }
 
     fun addOffClick(itemId: Long, countryId: Long, delta: Int = 1) = viewModelScope.launch {

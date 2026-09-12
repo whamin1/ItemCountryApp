@@ -18,6 +18,6 @@
 
     <item
         android:id="@+id/settingsFragment"
-        android:icon="@drawable/ic_settings"
-        android:title="설정" />
+        android:icon="@drawable/ic_category"
+        android:title="분류" />
 </menu>

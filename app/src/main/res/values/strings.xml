@@ -2,4 +2,109 @@
     <string name="app_name">My Application</string>
 <!-- TODO: Remove or change this placeholder text -->
     <string name="hello_blank_fragment">Hello blank fragment</string>
+
+    <string-array name="splash_monday_messages">
+        <item>월요일이에요. 우리 천천히 시동 걸어볼까요? 💜</item>
+        <item>새로운 한 주 시작! 오늘도 잘될 예정이에요 ✨</item>
+        <item>월요일 출석 완료. 벌써 하나 해냈네요!</item>
+        <item>이번 주의 당신도 꽤 기대되는데요? 👀</item>
+        <item>월요일부터 너무 완벽할 필요는 없어요 :)</item>
+        <item>이번 주 행운도 슬슬 출근 중이에요 🍀</item>
+        <item>첫 단추는 제가 예쁘게 응원해 드릴게요 💜</item>
+        <item>월요일은 가볍게, 그래도 기분 좋게 시작!</item>
+        <item>오늘 하나씩 해내면 이번 주도 문제없어요.</item>
+        <item>이번 주도 우리 페이스대로 멋지게 가봐요 ✨</item>
+        <item>월요일부터 들어오다니, 역시 부지런하네요!</item>
+        <item>힘은 살짝 빼고 자신감은 가득 채워요 😎</item>
+    </string-array>
+
+    <string-array name="splash_tuesday_messages">
+        <item>화요일이에요. 이제 리듬이 딱 잡혔죠? ✨</item>
+        <item>오늘은 어제보다 조금 더 가볍게 해봐요 💜</item>
+        <item>화요일의 당신, 꽤 안정적으로 멋진데요?</item>
+        <item>좋아요. 오늘도 하나씩 착착 가볼까요?</item>
+        <item>이번 주 페이스 아주 좋아요. 그대로만 가요!</item>
+        <item>오늘은 왠지 일이 술술 풀릴 것 같아요 🍀</item>
+        <item>화요일은 은근히 잘되는 날인 거 알죠? 👀</item>
+        <item>조급하지 않게, 예쁘게 정리해 봐요.</item>
+        <item>어제 잘 시작했으니 오늘은 더 잘될 거예요!</item>
+        <item>오늘의 작은 성공, 제가 먼저 기대할게요 💜</item>
+        <item>리듬 탔어요! 오늘도 기분 좋게 출발 ✨</item>
+        <item>지금처럼 차분하게 하면 충분히 잘해낼 거예요.</item>
+    </string-array>
+
+    <string-array name="splash_wednesday_messages">
+        <item>수요일이에요. 벌써 절반이나 왔어요! 💜</item>
+        <item>이번 주의 가운데에서 잠깐 숨 한번 고를까요?</item>
+        <item>반이나 해냈다는 건 꽤 대단한 일이에요 ✨</item>
+        <item>수요일도 출석 완료! 나머지도 문제없겠네요.</item>
+        <item>딱 절반 왔어요. 오늘은 자신 있게 가봐요!</item>
+        <item>조금 지쳤다면 천천히 해도 괜찮아요 :)</item>
+        <item>오늘만 지나면 주말이 조금 더 가까워져요 👀</item>
+        <item>이번 주도 아주 잘하고 있어요. 제가 봤어요!</item>
+        <item>수요일의 행운, 살짝 챙겨드릴게요 🍀</item>
+        <item>가운데까지 왔으니 기분 좋게 한번 웃어요 😆</item>
+        <item>오늘은 완벽보다 편안한 마무리가 목표예요.</item>
+        <item>절반 성공! 남은 절반도 우리답게 해봐요 💜</item>
+    </string-array>
+
+    <string-array name="splash_thursday_messages">
+        <item>목요일이에요. 거의 다 왔어요! 조금만 더 💜</item>
+        <item>주말이 저기 보여요. 오늘도 깔끔하게 가봐요!</item>
+        <item>이번 주도 벌써 여기까지 왔네요. 잘했어요 ✨</item>
+        <item>목요일은 금요일의 예고편 같은 날이죠? 👀</item>
+        <item>오늘만 멋지게 해내면 마음이 한결 가벼워질 거예요.</item>
+        <item>조금만 더 힘내요. 제가 옆에서 응원할게요 💜</item>
+        <item>끝이 보일 때가 제일 멋지게 할 순간이에요!</item>
+        <item>목요일 버프 드릴게요. 오늘도 술술 풀려라 ✨</item>
+        <item>이번 주의 어려운 부분은 거의 다 지나왔어요.</item>
+        <item>오늘도 무리하지 말고 하나씩 처리해요 :)</item>
+        <item>거의 다 왔으니까 기분 좋은 일만 챙겨가요 🍀</item>
+        <item>내일은 금요일! 오늘도 예쁘게 마무리해 봐요.</item>
+    </string-array>
+
+    <string-array name="splash_friday_messages">
+        <item>오늘은 금요일!! 조금만 더 힘내요! 💜</item>
+        <item>금요일이다! 오늘도 멋지게 마무리해요 ✨</item>
+        <item>여기까지 왔다니, 이번 주도 정말 잘했어요!</item>
+        <item>오늘만 깔끔하게 끝내면 됩니다 😎</item>
+        <item>금요일 버프 적용 완료! 오늘은 잘될 거예요.</item>
+        <item>이번 주 마지막 페이지도 예쁘게 마무리해요.</item>
+        <item>오늘 퇴근은 평소보다 조금 더 달콤할 예정 😆</item>
+        <item>금요일이에요. 기분 좋은 쪽으로 가볼까요?</item>
+        <item>이번 주 여기까지 온 것만으로도 훌륭해요 💜</item>
+        <item>오늘은 왠지 시간이 빨리 갈 것 같은데요? 👀</item>
+        <item>무사히, 깔끔하게, 기분 좋게! 오늘의 목표예요.</item>
+        <item>자, 오늘도 멋지게 끝내고 푹 쉬러 가요!</item>
+    </string-array>
+
+    <string-array name="splash_saturday_messages">
+        <item>오늘은 토요일인데 들어오셨네요? 👀</item>
+        <item>토요일에도 수고가 많아요. 천천히 해요!</item>
+        <item>토요일 출석이라니, 이건 칭찬받아야 해요 💜</item>
+        <item>주말에도 열심히 하는 사람 발견!</item>
+        <item>오늘은 평소보다 조금 여유 있게 해요 :)</item>
+        <item>토요일까지 온 당신에게 행운 하나 추가 🍀</item>
+        <item>오늘도 일한다면 적어도 기분은 좋게!</item>
+        <item>주말 출석 보너스 +100 드릴게요 ✨</item>
+        <item>이 정도면 정말 충분히 부지런해요.</item>
+        <item>오늘은 적당히 잘하고, 많이 웃어요 😆</item>
+        <item>주말에도 멋지게 살아가는 중이네요 💜</item>
+        <item>토요일 근무라니, 오늘 간식 하나는 인정이에요 😎</item>
+    </string-array>
+
+    <string-array name="splash_sunday_messages">
+        <item>오늘은 일요일인데 들어오셨네요? 👀</item>
+        <item>일요일에도 수고가 많아요. 천천히 해요!</item>
+        <item>일요일 출석이라니, 정말 성실하네요 💜</item>
+        <item>오늘은 조금 느긋하게 해도 괜찮아요 :)</item>
+        <item>일요일까지 열심히 하는 당신에게 박수 👏</item>
+        <item>오늘 할 일은 깔끔하게, 마음은 편안하게!</item>
+        <item>주말의 마지막도 기분 좋게 보내요 ✨</item>
+        <item>일요일인데 일하고 있다면 이미 충분히 대단해요.</item>
+        <item>오늘은 무리하지 말고 하나씩 천천히 해요!</item>
+        <item>일요일 행운 보너스 지급 완료 🍀</item>
+        <item>오늘 하루도 잘 마무리하고 푹 쉬어요 💜</item>
+        <item>내일 걱정은 내일의 나에게 살짝 맡겨두기 😎</item>
+    </string-array>
 </resources>

@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.google.android.material.chip.Chip
@@ -54,15 +55,22 @@ class EntryAdapter(
 
     private var tempHave: Map<Pair<String, String>, Int> = emptyMap()
     private var tempIsCountryMode: Boolean = false
+    private var allowedItemNames: Set<String>? = null
 
     fun setTempSnapshot(
-        pending: Map<Pair<String, String>, Pair<Int, Int>>, // (item,country)->(needed,have)
+        pending: Map<Pair<String, String>, Pair<Int, Int>>,
         isCountryMode: Boolean
     ) {
+        val newTempHave = pending.mapValues { it.value.second }
+
+        if (tempIsCountryMode == isCountryMode && tempHave == newTempHave) {
+            return
+        }
+
+        val modeChanged = tempIsCountryMode != isCountryMode
         tempIsCountryMode = isCountryMode
-        // pending에서 have만 꺼내서 보관
-        tempHave = pending.mapValues { it.value.second }
-        notifyDataSetChanged()
+        tempHave = newTempHave
+        if (modeChanged) rebuildSections(full, filterQuery) else notifyDataSetChanged()
     }
     // ----- 원본/표시 데이터 -----
     private var full: List<Pair<String, List<Row>>> = emptyList()   // 원본(검색용)
@@ -102,6 +110,13 @@ class EntryAdapter(
         full = map.entries.map { e ->
             e.key to e.value.map { cq -> Row(cq.name, cq.needed, cq.have, cq.price) }
         }
+        rebuildSections(full, filterQuery)
+    }
+
+    fun setAllowedItemNames(itemNames: Set<String>?) {
+        val normalized = itemNames?.map { it.trim().lowercase() }?.toSet()
+        if (allowedItemNames == normalized) return
+        allowedItemNames = normalized
         rebuildSections(full, filterQuery)
     }
 
@@ -145,8 +160,19 @@ class EntryAdapter(
         src: List<Pair<String, List<Row>>>,
         query: String
     ) {
-        val filtered = if (query.isBlank()) src else {
-            src.filter { (head, rows) ->
+        val categoryFiltered = allowedItemNames?.let { allowed ->
+            if (tempIsCountryMode) {
+                src.mapNotNull { (country, rows) ->
+                    val matchingRows = rows.filter { it.name.trim().lowercase() in allowed }
+                    if (matchingRows.isEmpty()) null else country to matchingRows
+                }
+            } else {
+                src.filter { (item, _) -> item.trim().lowercase() in allowed }
+            }
+        } ?: src
+
+        val filtered = if (query.isBlank()) categoryFiltered else {
+            categoryFiltered.filter { (head, rows) ->
                 head.contains(query, ignoreCase = true) ||
                         rows.any { it.name.contains(query, ignoreCase = true) }
             }
@@ -274,8 +300,8 @@ class EntryAdapter(
                 }
                 val chipView = inflater.inflate(layoutRes, chipGroup, false)
                 val tv = chipView.findViewById<TextView>(R.id.tvLabel)
+                val tvCount = chipView.findViewById<TextView>(R.id.tvCount)
                 val tvDots = chipView.findViewById<TextView>(R.id.tvDots)
-                val btnMinus = chipView.findViewById<ImageButton>(R.id.btnMinus)
                 val btnPlus = chipView.findViewById<ImageButton>(R.id.btnPlus)
                 val tvPrice = chipView.findViewById<TextView>(R.id.tvPrice)
 
@@ -293,32 +319,35 @@ class EntryAdapter(
                 // 임시 have 값이 있으면 그걸 표시, 없으면 원래 r.have
                 val displayHave = tempHave[key] ?: baseHave
 
-                val canMinus = if (showOffHave) {
-                    displayHave > 0                 // OFF 모드는 0까지 감소 가능
-                } else {
-                    displayHave > baseHave          // ✅ 저장 모드는 baseHave 아래로 감소 금지 (Δ<0 방지)
-                }
-                btnMinus.isEnabled = canMinus
-                btnMinus.alpha = if (canMinus) 1f else 0.3f
-
-
                 val labelPrefix = if (showOffHave) "O" else "S"
                 // (선택) 임시 증감도 같이 보여주고 싶으면 extra 붙이기
                 val extra = tempHave[key]?.let { v -> if (v != baseHave) " (${v - baseHave})" else "" } ?: "(0)"
-                if (!tempIsCountryMode) {
-                    tv.text = "${r.name} (N:${r.needed}, $labelPrefix:${displayHave})"
-                } else{
-                    tv.text = "${r.name} \n (N:${r.needed}, $labelPrefix:${displayHave})$extra"
+                tv.text = r.name
+                tvCount.text = if (!tempIsCountryMode) {
+                    "(N:${r.needed}, $labelPrefix:${displayHave})"
+                } else {
+                    "(N:${r.needed}, $labelPrefix:${displayHave})$extra"
+                }
+
+                // 목표가 있는 아이템만 현재 수량 상태를 색으로 구분한다.
+                if (r.needed > 0) {
+                    val statusColor = when {
+                        displayHave < r.needed -> R.color.home_count_short
+                        displayHave == r.needed -> R.color.home_count_met
+                        else -> R.color.home_count_over
+                    }
+                    tvCount.setTextColor(
+                        ContextCompat.getColor(chipView.context, statusColor)
+                    )
                 }
 
                 updateDots(tvDots, displayHave, r.needed)
 
-                btnMinus.setOnClickListener {
-                    if (!canMinus) return@setOnClickListener
-                    onDelta(head, r, -1)
-                }
                 btnPlus.setOnClickListener {
                     onDelta(head, r, +1)
+                }
+
+                tvDots.setOnClickListener {onDelta(head, r, +1)
                 }
 
                 chipView.setOnClickListener {
@@ -349,27 +378,26 @@ class EntryAdapter(
     }
 
     private fun updateDots(tvDots: TextView, have: Int, needed: Int) {
-        tvDots.post {
-            val totalWidth = tvDots.width
-            if (totalWidth <= 0) return@post
-
-            val dotWidth = tvDots.paint.measureText("●")
-            val space = tvDots.paint.measureText(" ")
-            val oneSlot = (dotWidth + space).coerceAtLeast(1f)
-
-            val maxSlotsByWidth = (totalWidth / oneSlot).toInt().coerceAtLeast(1)
-            val slots = maxSlotsByWidth
-            tvDots.text = buildDots(have, slots)
-        }
+        tvDots.text = buildDots(have, 10)
     }
 
     private fun buildDots(have: Int, slots: Int): String {
+        val numbers = listOf("①","②","③","④","⑤","⑥","⑦","⑧","⑨","⑩")
+
         val maxSlots = slots.coerceAtLeast(1)
         val full = have.coerceIn(0, maxSlots)
-        val empty = (maxSlots - full).coerceAtLeast(0)
 
-        return "●".repeat(full) + "○".repeat(empty)
+        val sb = StringBuilder()
 
+        for (i in 0 until maxSlots) {
+            if (i < full) {
+                sb.append(numbers.getOrNull(i) ?: "●")
+            } else {
+                sb.append("○")
+            }
+        }
+
+        return sb.toString()
     }
 
     private var showOffHave: Boolean = false

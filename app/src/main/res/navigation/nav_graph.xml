@@ -59,7 +59,7 @@
     <fragment
         android:id="@+id/settingsFragment"
         android:name="com.bignerdranch.android.myapplication.ui.SettingsFragment"
-        android:label="설정" />
+        android:label="분류" />
 
     <fragment
         android:id="@+id/countryHistoryFragment"

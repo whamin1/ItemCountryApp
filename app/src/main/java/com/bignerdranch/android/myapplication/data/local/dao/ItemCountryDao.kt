@@ -16,6 +16,8 @@ import androidx.room.Update
 import androidx.room.Upsert
 import com.bignerdranch.android.myapplication.data.local.entity.AdditionLogEntity
 import com.bignerdranch.android.myapplication.data.local.entity.CountryEntity
+import com.bignerdranch.android.myapplication.data.local.entity.CategoryEntity
+import com.bignerdranch.android.myapplication.data.local.entity.ItemCategoryAssignmentEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemCountryCrossRef
 import com.bignerdranch.android.myapplication.data.local.entity.ItemEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
@@ -70,20 +72,60 @@ data class ItemCountryRow(
 @Dao
 interface ItemCountryDao {
 
-    @Upsert
-    suspend fun upsertItems(items: List<ItemEntity>): List<Long>
+    data class ItemCategoryRow(
+        val itemName: String,
+        val categoryId: Long?,
+        val categoryName: String?
+    )
+
+    @Query("""
+SELECT i.name AS itemName,
+       a.categoryId AS categoryId, c.name AS categoryName
+FROM (
+    SELECT DISTINCT i.name
+    FROM items i
+    JOIN item_country ic ON ic.itemId = i.id
+) i
+LEFT JOIN item_category_assignments a ON a.itemName = i.name
+LEFT JOIN item_categories c ON c.id = a.categoryId
+ORDER BY i.name COLLATE NOCASE
+""")
+    fun observeItemCategoryRows(): Flow<List<ItemCategoryRow>>
+
+    @Query("SELECT * FROM item_categories ORDER BY name COLLATE NOCASE")
+    fun observeItemCategories(): Flow<List<CategoryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertItemCategory(category: CategoryEntity): Long
 
     @Upsert
+    suspend fun upsertItemCategoryAssignment(assignment: ItemCategoryAssignmentEntity)
+
+    @Query("DELETE FROM item_category_assignments WHERE itemName = :itemName")
+    suspend fun clearItemCategoryAssignment(itemName: String)
+
+    @Transaction
+    suspend fun applyItemCategoryChanges(changes: Map<String, Long?>) {
+        changes.forEach { (itemName, categoryId) ->
+            if (categoryId == null) clearItemCategoryAssignment(itemName)
+            else upsertItemCategoryAssignment(ItemCategoryAssignmentEntity(itemName, categoryId))
+        }
+    }
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun upsertItems(items: List<ItemEntity>): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun upsertCountries(countries: List<CountryEntity>): List<Long>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertCrossRefs(refs: List<ItemCountryCrossRef>)
+    suspend fun insertCrossRefs(refs: List<ItemCountryCrossRef>): List<Long>
 
     @Query("SELECT * FROM items WHERE name = :name LIMIT 1")
-    fun findItemByName(name: String): ItemEntity?
+    suspend fun findItemByName(name: String): ItemEntity?
 
     @Query("SELECT * FROM countries WHERE name = :name LIMIT 1")
-    fun findCountryByName(name: String): CountryEntity?
+    suspend fun findCountryByName(name: String): CountryEntity?
 
     @Transaction
     @Query("SELECT * FROM items WHERE name = :itemName LIMIT 1")
@@ -634,6 +676,18 @@ LIMIT :limit
     @Query("SELECT name FROM items ORDER BY name")
     suspend fun getAllItemsNames(): List<String>
 
+    @Query("""
+SELECT DISTINCT i.name
+FROM items i
+JOIN item_country ic ON ic.itemId = i.id
+JOIN countries c ON c.id = ic.countryId
+WHERE COALESCE(ic.enabled, 1) = 1
+  AND c.hidden = 0
+  AND i.name != '쓰레기'
+ORDER BY i.name
+""")
+    suspend fun getVisibleItemNamesForReport(): List<String>
+
     @Query("SELECT name FROM items WHERE id = :itemId LIMIT 1")
     suspend fun getItemNameById(itemId: Long): String?
 
@@ -721,7 +775,7 @@ WHERE c.name = :country
 
         @Query("DELETE FROM sheet_lines WHERE sheetId = :sheetId")
         suspend fun deleteSheetLinesBySheet(sheetId: Long)
-        @Query("DELETE FROM sheet_lines WHERE sheetId = :sheetId AND country = :country")
+        @Query("DELETE FROM sheet_lines WHERE sheetId = :sheetId AND LOWER(country) = LOWER(:country)")
         suspend fun deleteSheetLinesByCountry(sheetId: Long, country: String)
         @Query("DELETE FROM sheets WHERE id = :sheetId")
         suspend fun deleteSheetById(sheetId: Long)
@@ -992,6 +1046,19 @@ WHERE itemId = :itemId
     }
 
     // ✅ ItemCountryDao.kt 안에 그대로 두고 이걸로 교체
+    @Transaction
+    suspend fun resetOffByCountry(country: String): Int {
+        var resetCount = 0
+        getHaveAndOffByCountry(country).forEach { row ->
+            val currentOff = getOffHave(row.itemId, row.countryId)
+            if (currentOff > 0) {
+                addOffDelta(row.itemId, row.countryId, -currentOff)
+                resetCount++
+            }
+        }
+        return resetCount
+    }
+
     @Query("""
     SELECT country AS name,
     MAX(hidden) AS hidden,
@@ -1140,11 +1207,32 @@ s.title AS sheetTitle,
 
     @Query("""
         SELECT COUNT(*)
-        FROM sheet_lines
-        WHERE LOWER(item) = LOWER(:item)
-        AND LOWER(country) = LOWER(:country)
+        FROM sheet_lines sl
+        JOIN sheets s ON s.id = sl.sheetId
+        WHERE LOWER(sl.item) = LOWER(:item)
+          AND LOWER(sl.country) = LOWER(:country)
+          AND sl.isDeleted = 0
+          AND sl.hidden = 0
+          AND s.hidden = 0
     """)
     suspend fun countSheetLinesByItemAndCountry(item: String, country: String): Int
+
+    @Query("""
+        SELECT COUNT(*)
+        FROM sheet_lines sl
+        JOIN sheets s ON s.id = sl.sheetId
+        WHERE LOWER(sl.item) = LOWER(:item)
+          AND LOWER(sl.country) = LOWER(:country)
+          AND sl.sheetId != :excludedSheetId
+          AND sl.isDeleted = 0
+          AND sl.hidden = 0
+          AND s.hidden = 0
+    """)
+    suspend fun countSheetLinesByItemAndCountryExcludingSheet(
+        item: String,
+        country: String,
+        excludedSheetId: Long
+    ): Int
 
     @Transaction
     suspend fun deleteSheetLineAndUnlinkIfOrphan(line: SheetLineEntity) {
@@ -1293,8 +1381,14 @@ ORDER BY c.name COLLATE NOCASE
 
     // ✅ 시트라인에 (item,country) 조합이 몇 개 남았는지
     @Query("""
-SELECT COUNT(*) FROM sheet_lines
-WHERE item = :item AND country = :country
+SELECT COUNT(*)
+FROM sheet_lines sl
+JOIN sheets s ON s.id = sl.sheetId
+WHERE LOWER(sl.item) = LOWER(:item)
+  AND LOWER(sl.country) = LOWER(:country)
+  AND sl.isDeleted = 0
+  AND sl.hidden = 0
+  AND s.hidden = 0
 """)
     suspend fun countSheetLinesByItemCountry(item: String, country: String): Int
 
@@ -1612,6 +1706,111 @@ WHERE item = :itemName
         val totalPrice: Long,
         val waste: Int              // 1이면 쓰레기
     )
+
+    data class ReportCategoryAggRow(
+        val categoryName: String,
+        val totalDelta: Int,
+        val totalKg: Double,
+        val totalPrice: Long
+    )
+
+    data class ReportSheetAggRow(
+        val sheetTitle: String,
+        val totalDelta: Int,
+        val totalKg: Double,
+        val totalPrice: Long
+    )
+
+    @Query("""
+WITH mapped_logs AS (
+  SELECT
+    q.delta AS delta,
+    COALESCE(q.weightAt, 0) AS weightAt,
+    COALESCE(q.priceAt, 0) AS priceAt,
+    COALESCE(
+      (
+        SELECT s.title
+        FROM sheet_lines sl
+        JOIN sheets s ON s.id = sl.sheetId
+        WHERE sl.isDeleted = 0
+          AND LOWER(TRIM(sl.item)) = LOWER(TRIM(COALESCE(NULLIF(q.itemName, ''), i.name, '')))
+          AND LOWER(TRIM(sl.country)) = LOWER(TRIM(COALESCE(NULLIF(q.countryName, ''), c.name, '')))
+        ORDER BY sl.createdAt DESC, sl.id DESC
+        LIMIT 1
+      ),
+      '미지정'
+    ) AS sheetTitle
+  FROM quantity_log q
+  LEFT JOIN items i ON i.id = q.itemId
+  LEFT JOIN countries c ON c.id = q.countryId
+  WHERE q.delta > 0
+    AND q.archived = 0
+    AND q.timestamp BETWEEN :from AND :to
+    AND TRIM(COALESCE(NULLIF(q.itemName, ''), i.name, '')) != '쓰레기'
+)
+SELECT
+  sheetTitle,
+  SUM(delta) AS totalDelta,
+  SUM(delta * weightAt) AS totalKg,
+  SUM(delta * priceAt) AS totalPrice
+FROM mapped_logs
+GROUP BY sheetTitle
+ORDER BY totalKg DESC, sheetTitle COLLATE NOCASE
+""")
+    suspend fun reportAggBySheetInPeriod(
+        from: Long,
+        to: Long
+    ): List<ReportSheetAggRow>
+
+    @Query("""
+SELECT
+  COALESCE(cat.name, '미분류') AS categoryName,
+  SUM(q.delta) AS totalDelta,
+  SUM(q.delta * COALESCE(q.weightAt, 0)) AS totalKg,
+  SUM(q.delta * COALESCE(q.priceAt, 0)) AS totalPrice
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+LEFT JOIN item_category_assignments a
+  ON a.itemName = TRIM(COALESCE(NULLIF(q.itemName, ''), i.name, ''))
+LEFT JOIN item_categories cat ON cat.id = a.categoryId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+  AND TRIM(COALESCE(NULLIF(q.itemName, ''), i.name, '')) != '쓰레기'
+GROUP BY COALESCE(cat.name, '미분류')
+ORDER BY totalKg DESC, categoryName COLLATE NOCASE
+""")
+    suspend fun reportAggByCategoryInPeriod(
+        from: Long,
+        to: Long
+    ): List<ReportCategoryAggRow>
+
+    @Query("""
+SELECT COUNT(DISTINCT ((q.timestamp + 32400000) / 86400000))
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp BETWEEN :from AND :to
+  AND TRIM(COALESCE(NULLIF(q.itemName, ''), i.name, '')) != '쓰레기'
+""")
+    suspend fun countProductionDaysInPeriod(from: Long, to: Long): Int
+
+    @Query("""
+SELECT DISTINCT ((q.timestamp + 32400000) / 86400000) AS dayIndexKst
+FROM quantity_log q
+LEFT JOIN items i ON i.id = q.itemId
+WHERE q.delta > 0
+  AND q.archived = 0
+  AND q.timestamp < :before
+  AND TRIM(COALESCE(NULLIF(q.itemName, ''), i.name, '')) != '쓰레기'
+ORDER BY dayIndexKst DESC
+LIMIT :limit
+""")
+    suspend fun getPreviousProductionDayIndexes(
+        before: Long,
+        limit: Int
+    ): List<Long>
 
     // 아이템 상세 로그용 (최근 30개, 최신순)
     data class ReportItemLogRow(

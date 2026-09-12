@@ -12,61 +12,64 @@
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        >
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- 왼쪽 영역 -->
         <LinearLayout
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="match_parent">
-
-
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
             <TextView
                 android:id="@+id/tvLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingHorizontal="6dp"
-                android:text="한국 (필요0 보유0)"/>
+                android:text="한국" />
 
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
 
+                <TextView
+                    android:id="@+id/tvCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="28dp"
+                    android:gravity="center"
+                    android:paddingHorizontal="6dp"
+                    android:text="(필요0 보유0)"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/tvPrice"
+                    android:layout_width="58dp"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="₩0"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
         </LinearLayout>
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
 
-            <ImageButton
-                android:id="@+id/btnMinus"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:contentDescription="-"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_delete"/>
+        <!-- 오른쪽 가운데의 큰 플러스 버튼 -->
+        <ImageButton
+            android:id="@+id/btnPlus"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:contentDescription="+"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_input_add" />
 
-            <TextView
-                android:id="@+id/tvPrice"
-                android:layout_width="58dp"
-                android:layout_height="match_parent"
-                android:gravity="bottom"
-                android:text="₩0"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="12sp" />
-
-            <ImageButton
-                android:id="@+id/btnPlus"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
-                android:contentDescription="+"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_input_add"/>
-        </LinearLayout>
     </LinearLayout>
+
     <TextView
         android:id="@+id/tvDots"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:visibility="gone"
-        android:textSize="12sp"/>
+        android:textSize="12sp" />
+
 
 </com.google.android.material.card.MaterialCardView>

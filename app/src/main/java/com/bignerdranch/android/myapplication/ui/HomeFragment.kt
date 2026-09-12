@@ -34,6 +34,7 @@ import kotlinx.coroutines.launch
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.text.TextWatcher
 import android.util.Log
+import android.view.MenuItem
 import androidx.appcompat.widget.Toolbar
 import androidx.core.os.bundleOf
 import androidx.core.view.isVisible
@@ -41,6 +42,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.room.util.query
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.db.AppDatabase
+import com.bignerdranch.android.myapplication.data.local.entity.CategoryEntity
 import com.bignerdranch.android.myapplication.data.local.entity.ItemSearchRow
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SaveSessionLineEntity
@@ -48,6 +50,8 @@ import com.bignerdranch.android.myapplication.data.local.entity.SheetEntity
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
 import com.bignerdranch.android.myapplication.repository.ItemCountryRepository
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -75,6 +79,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private lateinit var switchMode: SwitchCompat
     private val isCountMode = MutableStateFlow(false)
     private lateinit var switchCountMode: SwitchCompat
+    private lateinit var categoryFilterGroup: ChipGroup
+    private lateinit var categoryAllChip: Chip
+    private var categoryRows: List<ItemCountryDao.ItemCategoryRow> = emptyList()
+    private var categories: List<CategoryEntity> = emptyList()
+    private var categoryFilterEnabled = false
+    private var selectedCategoryId: Long? = null
 
     private val db by lazy { AppDatabase.get(requireContext()) }
     private val itemDao by lazy { db.itemCountryDao() }
@@ -87,6 +97,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private lateinit var fabArchive: FloatingActionButton
     private val PREFS_NAME = "pred_prefs"
     private val KEY_EXCLUDED_IDS = "excluded_item_ids"
+    private val HOME_CATEGORY_PREFS = "home_category_filter_prefs"
+    private val KEY_CATEGORY_ORDER = "category_order"
 
     private fun predPrefs() =
         requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -110,6 +122,8 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         tvMode = view.findViewById(R.id.tvMode)
         switchMode = view.findViewById(R.id.switchMode)
         switchCountMode = view.findViewById(R.id.switchCountMode)
+        categoryFilterGroup = view.findViewById(R.id.homeCategoryFilterGroup)
+        categoryAllChip = view.findViewById(R.id.homeCategoryAllChip)
         recyclerView = view.findViewById(R.id.recyclerView)
         indexBar = view.findViewById(R.id.indexBar)
 //        val fabAdd = view.findViewById<FloatingActionButton>(R.id.fabAdd)
@@ -117,6 +131,13 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 //        val fabSave = view.findViewById< ExtendedFloatingActionButton>(R.id.fabSave)
 //        val fabArchive = view.findViewById<FloatingActionButton>(R.id.fabArchive)
 //        val fabReset = view.findViewById<FloatingActionButton>(R.id.fabReset)
+
+        categoryAllChip.setOnClickListener {
+            categoryFilterEnabled = false
+            selectedCategoryId = null
+            applyHomeCategoryFilter()
+            renderHomeCategoryFilters()
+        }
 
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -323,10 +344,6 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     currentNeeded = row.needed,
                     currentHave = row.have
                 )
-                // (선택) 화면 갱신 표시: tvLabel에 보이는 보유수를 임시로 +1/-1 반영하고 싶으면
-                // adapter 쪽에 "임시 표시값" 지원을 더해도 됨
-                // 👇 현재 pending 스냅샷을 어댑터에 넘겨 라벨 즉시 반영
-                adapter.setTempSnapshot(pendingSnapshotForAdapter(), isCountryMode.value)
             }
         )
 
@@ -346,29 +363,72 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         setupIndexBar()
 
         // 4) 툴바 메뉴 + 검색
+        toolbar.menu.clear()
         toolbar.inflateMenu(R.menu.menu)
+
         val searchItem = toolbar.menu.findItem(R.id.action_search)
-        val searchView = searchItem.actionView as SearchView
+
+        if (searchItem != null) {
+            val searchView = searchItem.actionView as SearchView
+            searchView.isSubmitButtonEnabled = true
+            searchView.queryHint = "검색 (화살표를 누르면 다음 결과)"
+
+            searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+                override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+                    return true
+                }
+
+                override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
+                    searchView.setQuery("", false)
+                    searchView.clearFocus()
+                    adapter.setHighlightQuery(null)
+                    lastSearchIndex = -1
+                    return true
+                }
+            })
+
+            searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+                override fun onQueryTextSubmit(query: String?): Boolean {
+                    moveToNextMatch(query)
+                    return true
+                }
+
+                override fun onQueryTextChange(newText: String?): Boolean {
+                    adapter.setHighlightQuery(newText)
+                    moveToFirstMatch(newText)
+                    return true
+                }
+            })
+
+            view.setOnClickListener {
+                searchItem.collapseActionView()
+            }
+
+            recyclerView.addOnItemTouchListener(
+                object : RecyclerView.SimpleOnItemTouchListener() {
+                    override fun onInterceptTouchEvent(rv: RecyclerView, event: MotionEvent): Boolean {
+                        if (event.actionMasked == MotionEvent.ACTION_DOWN && searchItem.isActionViewExpanded) {
+                            searchItem.collapseActionView()
+                        }
+                        return false
+                    }
+                }
+            )
+        }
+
         toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_cleanup_orphan_links -> {
                     confirmCleanupOrphanLinks()
                     true
                 }
+                R.id.action_reset_off_by_country -> {
+                    showResetOffByCountryDialog()
+                    true
+                }
                 else -> false
             }
         }
-        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String?): Boolean {
-                moveToNextMatch(query)
-                return true
-            }
-            override fun onQueryTextChange(newText: String?): Boolean {
-                adapter.setHighlightQuery(newText)
-                moveToFirstMatch(newText)
-                return true
-            }
-        })
 
         // 5) 스위치/플로팅버튼
         switchMode.setOnCheckedChangeListener { _, isChecked ->
@@ -430,6 +490,26 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                     }
                 }
                 launch {
+                    combine(
+                        itemDao.observeItemCategoryRows(),
+                        itemDao.observeItemCategories()
+                    ) { itemRows, categoryList -> itemRows to categoryList }
+                        .collect { (itemRows, categoryList) ->
+                            categoryRows = itemRows
+                            categories = categoryList
+
+                            if (categoryFilterEnabled && selectedCategoryId != null &&
+                                categories.none { it.id == selectedCategoryId }
+                            ) {
+                                categoryFilterEnabled = false
+                                selectedCategoryId = null
+                            }
+
+                            applyHomeCategoryFilter()
+                            renderHomeCategoryFilters()
+                        }
+                }
+                launch {
                     vm.pendingJumpItem.collect { item ->
                         if (item.isNullOrBlank()) return@collect
 
@@ -489,6 +569,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             }
         }
 
+        /* 홈 화면 예상 아이템 미리보기 (필요하면 주석을 해제해서 복구)
         val tvPred = view.findViewById<TextView>(R.id.tvPred)
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -522,7 +603,126 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         view.findViewById<View>(R.id.btnPredAll).setOnClickListener {
             findNavController().navigate(R.id.predictionsFragment)
         }
+        */
 
+    }
+
+    private fun renderHomeCategoryFilters() {
+        categoryFilterGroup.removeAllViews()
+        categoryAllChip.text = "전체 ${categoryRows.size}"
+        categoryAllChip.isChecked = !categoryFilterEnabled
+
+        orderedHomeCategories().forEach { category ->
+            val count = categoryRows.count { it.categoryId == category.id }
+            addHomeCategoryChip(
+                label = "${category.name} $count",
+                checked = categoryFilterEnabled && selectedCategoryId == category.id,
+                onLongSelected = { showHomeCategoryOrderDialog(category) }
+            ) {
+                categoryFilterEnabled = true
+                selectedCategoryId = category.id
+            }
+        }
+    }
+
+    private fun addHomeCategoryChip(
+        label: String,
+        checked: Boolean,
+        onLongSelected: (() -> Unit)? = null,
+        onSelected: () -> Unit
+    ) {
+        val chip = Chip(requireContext()).apply {
+            id = View.generateViewId()
+            text = label
+            isCheckable = true
+            isChecked = checked
+            setOnClickListener {
+                onSelected()
+                applyHomeCategoryFilter()
+                renderHomeCategoryFilters()
+            }
+            if (onLongSelected != null) {
+                setOnLongClickListener {
+                    onLongSelected()
+                    true
+                }
+            }
+        }
+        categoryFilterGroup.addView(chip)
+    }
+
+    private fun orderedHomeCategories(): List<CategoryEntity> {
+        val savedIds = requireContext()
+            .getSharedPreferences(HOME_CATEGORY_PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CATEGORY_ORDER, "")
+            .orEmpty()
+            .split(',')
+            .mapNotNull { it.toLongOrNull() }
+
+        val savedPositions = savedIds.withIndex().associate { it.value to it.index }
+        return categories.sortedWith(
+            compareBy<CategoryEntity> { savedPositions[it.id] ?: Int.MAX_VALUE }
+                .thenBy { it.name.lowercase(Locale.KOREA) }
+        )
+    }
+
+    private fun saveHomeCategoryOrder(ordered: List<CategoryEntity>) {
+        requireContext()
+            .getSharedPreferences(HOME_CATEGORY_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CATEGORY_ORDER, ordered.joinToString(",") { it.id.toString() })
+            .apply()
+    }
+
+    private fun showHomeCategoryOrderDialog(category: CategoryEntity) {
+        val ordered = orderedHomeCategories().toMutableList()
+        val currentIndex = ordered.indexOfFirst { it.id == category.id }
+        if (currentIndex < 0 || ordered.size <= 1) {
+            Toast.makeText(requireContext(), "순서를 바꿀 다른 분류가 없어.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val actions = buildList<Pair<String, Int>> {
+            if (currentIndex > 0) {
+                add("한 칸 왼쪽" to currentIndex - 1)
+                add("맨 앞으로" to 0)
+            }
+            if (currentIndex < ordered.lastIndex) {
+                add("한 칸 오른쪽" to currentIndex + 1)
+                add("맨 뒤로" to ordered.lastIndex)
+            }
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("${category.name} 순서 변경")
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
+                val destination = actions[which].second
+                val moved = ordered.removeAt(currentIndex)
+                ordered.add(destination, moved)
+                saveHomeCategoryOrder(ordered)
+                renderHomeCategoryFilters()
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun applyHomeCategoryFilter() {
+        val allowedItems = if (!categoryFilterEnabled) {
+            null
+        } else {
+            categoryRows
+                .asSequence()
+                .filter { it.categoryId == selectedCategoryId }
+                .map { it.itemName }
+                .toSet()
+        }
+
+        adapter.setAllowedItemNames(allowedItems)
+        indexBar.text = adapter.availableSections().joinToString("\n")
+        indexBar.isVisible = adapter.itemCount > 0
+        fitIndexBarLineSpacing()
+        recyclerView.scrollToPosition(0)
+        lastSearchIndex = -1
     }
 
     private fun renderPredictions(
@@ -824,7 +1024,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             pending[key] = Pending(baseNeeded, baseHave, newHave)
         } else {
             // 이미 있으면 newHave만 갱신
-            p.newHave = (p.newHave + delta).coerceAtLeast(p.baseNeeded)
+            p.newHave = (p.newHave + delta).coerceAtLeast(p.baseHave)
         }
         // 리스트 임시값 반영(이미 어댑터에 함수 만들었을 거야)
         adapter.setTempSnapshot(pendingSnapshotForAdapter(), countryMode)
@@ -1300,6 +1500,40 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             }
             .setNegativeButton("취소", null)
             .show()
+    }
+
+    private fun showResetOffByCountryDialog() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val countries = itemDao.getAllCountryNames().first()
+            if (countries.isEmpty()) {
+                Toast.makeText(requireContext(), "등록된 나라가 없습니다.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("OFF를 0으로 만들 나라 선택")
+                .setItems(countries.toTypedArray()) { _, which ->
+                    val country = countries[which]
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("$country OFF 초기화")
+                        .setMessage("$country 나라에 연결된 모든 아이템의 OFF 수량을 0으로 만들까요?")
+                        .setPositiveButton("0으로") { _, _ ->
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                val resetCount = itemDao.resetOffByCountry(country)
+                                vm.refreshPredictionsDebounced()
+                                Toast.makeText(
+                                    requireContext(),
+                                    "$country: ${resetCount}개 아이템의 OFF를 0으로 만들었습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                        .setNegativeButton("취소", null)
+                        .show()
+                }
+                .setNegativeButton("취소", null)
+                .show()
+        }
     }
 
     private fun showRowPickerBottomSheet(head: String, rows: List<Row>) {

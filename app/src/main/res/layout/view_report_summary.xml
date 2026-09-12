@@ -18,45 +18,75 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="총 26일"
+            android:textSize="18sp"
             android:textStyle="bold"/>
 
         <TextView
             android:id="@+id/tvSummaryKgTotal"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="총 무게: 0.00 kg" />
+            android:layout_marginTop="12dp"
+            android:lineSpacingExtra="4dp"
+            android:text="[전체]\n0.00 kg · 0개"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvSummaryKgItem"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="아이템: 0.00 kg" />
+            android:layout_marginTop="12dp"
+            android:lineSpacingExtra="4dp"
+            android:text="[구성]\n• 일반 아이템  0.00 kg · 0개" />
 
         <TextView
             android:id="@+id/tvSummaryKgWaste"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="쓰레기: 0.00 kg" />
+            android:layout_marginTop="4dp"
+            android:text="• 쓰레기  0.00 kg · 0개" />
+
+        <TextView
+            android:id="@+id/tvSummarySheets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:lineSpacingExtra="3dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvSummaryCategories"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:lineSpacingExtra="3dp"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/tvSummarySelectedRows"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:lineSpacingExtra="3dp"
             android:visibility="gone"/>
 
         <TextView
             android:id="@+id/tvSummarySelected"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="선택 아이템: -"
+            android:layout_marginTop="12dp"
+            android:lineSpacingExtra="4dp"
+            android:text="[선택 합계]\n-"
             android:visibility="gone"/>
 
         <TextView
             android:id="@+id/tvSummaryPrice"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="총 가격: 0"
+            android:layout_marginTop="12dp"
+            android:lineSpacingExtra="4dp"
+            android:text="[금액]\n전체 0"
             android:textStyle="bold"
-            android:paddingTop="6dp"/>
+            android:paddingTop="8dp"/>
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

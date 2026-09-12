@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.Menu
@@ -11,6 +13,7 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.MenuProvider
@@ -25,9 +28,12 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import com.bignerdranch.android.myapplication.data.local.entity.SheetLineEntity
+import com.bignerdranch.android.myapplication.repository.BulkSheetLineInput
+import com.bignerdranch.android.myapplication.repository.BulkSheetSyncSummary
 import com.bignerdranch.android.myapplication.ui.itemcountry.ItemCountryViewModel
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -51,13 +57,19 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         countryFilter = arguments?.getString("country")
     }
 
+    private fun screenTitle(): String {
+        val countryName = countryFilter?.takeIf { it.isNotBlank() }
+        return if (countryName != null && titleStr.isNotBlank()) "$titleStr ($countryName)"
+        else countryName ?: titleStr
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val sheetId = requireArguments().getLong("sheetId")
 
 
         val toolbar = view.findViewById<MaterialToolbar>(R.id.toolbar)
         if (toolbar != null) {
-            toolbar.title = titleStr
+            toolbar.title = screenTitle()
             toolbar.setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     R.id.action_copy_sheet -> {
@@ -79,11 +91,19 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                         )
                         true
                     }
+                    R.id.action_bulk_sync -> {
+                        showBulkSyncDialog()
+                        true
+                    }
+                    R.id.action_delete_items -> {
+                        showMoveLinesToTrashDialog()
+                        true
+                    }
                     else -> false
                 }
             }
         } else {
-            requireActivity().title = titleStr
+            requireActivity().title = screenTitle()
             requireActivity().addMenuProvider(object : MenuProvider {
                 override fun onCreateMenu(
                     menu: Menu,
@@ -97,6 +117,9 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                         R.id.action_copy_sheet -> {
                             requireContext().copyToClipboard("시트 내용", buildSheetCopyTextForPaste()); true
                         }
+                        R.id.action_bulk_sync -> {
+                            showBulkSyncDialog(); true
+                        }
                         else -> false
                     }
 
@@ -105,9 +128,12 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
         rv = view.findViewById(R.id.rv)
         rv.layoutManager = LinearLayoutManager(requireContext())
+        val fabSaveChanges = view.findViewById<ExtendedFloatingActionButton>(R.id.fabSaveChanges)
         adapter = LinesAdapter(
-            onEdit = { openEditDialog(it) },
-            onDelete = { confirmDeleteLine(it) },
+            onPendingCountChanged = { count ->
+                fabSaveChanges.isEnabled = count > 0
+                fabSaveChanges.text = if (count > 0) "변경 저장 ($count)" else "변경 저장"
+            },
             onToggleEnabled = { line, newEnabled ->
                 vm.toggleEnabled(line.item, line.country, newEnabled)
                 Toast.makeText(
@@ -117,7 +143,17 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
                 ).show()
             }
         )
+        adapter.showCountryInRow = countryFilter.isNullOrBlank()
         rv.adapter = adapter
+        fabSaveChanges.setOnClickListener {
+            val changes = adapter.pendingChanges()
+            if (changes.isEmpty()) return@setOnClickListener
+            changes.forEach { (old, updated) ->
+                vm.updateSheetLineAndApplyHome(old = old, new = updated)
+            }
+            adapter.clearPendingChanges()
+            Toast.makeText(requireContext(), "${changes.size}개 항목을 수정했습니다.", Toast.LENGTH_SHORT).show()
+        }
         attachLineReorder(sheetId)
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -187,15 +223,207 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
         }.trimEnd()
     }
 
-    private fun confirmDeleteLine(line: SheetLineEntity) {
-        AlertDialog.Builder(requireContext())
-            .setTitle("삭제 확인")
-            .setMessage("정말로 '${line.item}' 을(를) 삭제하시겠습니까?")
-            .setPositiveButton("삭제") { _, _ ->
-                vm.softDeleteSheetLine(line)
-                Toast.makeText(requireContext(), "휴지통으로 이동", Toast.LENGTH_SHORT).show()
+    private fun showBulkSyncDialog() {
+        val sheetId = requireArguments().getLong("sheetId")
+        val currentCountry = countryFilter?.trim().orEmpty()
+        if (currentCountry.isBlank()) {
+            Toast.makeText(
+                requireContext(),
+                "나라별 상세 화면에서 사용할 수 있어.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        if (adapter.hasPendingChanges()) {
+            Toast.makeText(
+                requireContext(),
+                "먼저 화면의 변경 저장 버튼을 눌러줘.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val content = layoutInflater.inflate(R.layout.dialog_bulk_sheet_sync, null)
+        val etLines = content.findViewById<EditText>(R.id.etLines).apply {
+            hint = "아이템, 필요, 무게, 가격"
+            setText(buildSheetCopyTextForPaste())
+            setSelection(text.length)
+            clearFocus()
+        }
+
+        val inputDialog = AlertDialog.Builder(requireContext())
+            .setTitle("$currentCountry 아이템 일괄 동기화")
+            .setMessage("한 줄에 아이템, 필요, 무게, 가격을 입력해줘.\n목록에서 빠진 기존 아이템은 비활성화돼.")
+            .setView(content)
+            .setPositiveButton("변경 확인", null)
+            .setNegativeButton("취소", null)
+            .create()
+
+        inputDialog.setOnShowListener {
+            inputDialog.window?.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+            )
+            inputDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val inputs = try {
+                    parseBulkSheetLines(etLines.text.toString())
+                } catch (e: IllegalArgumentException) {
+                    etLines.error = e.message
+                    return@setOnClickListener
+                }
+
+                val checkButton = inputDialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                checkButton.isEnabled = false
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        val preview = vm.previewBulkSheetLines(
+                            sheetId = sheetId,
+                            country = currentCountry,
+                            inputs = inputs
+                        )
+                        showBulkSyncConfirmation(
+                            inputDialog = inputDialog,
+                            sheetId = sheetId,
+                            country = currentCountry,
+                            inputs = inputs,
+                            preview = preview
+                        )
+                    } catch (e: Exception) {
+                        Toast.makeText(
+                            requireContext(),
+                            e.message ?: "변경 내용을 확인하지 못했어.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } finally {
+                        checkButton.isEnabled = true
+                    }
+                }
+            }
+        }
+        inputDialog.show()
+    }
+
+    private fun parseBulkSheetLines(text: String): List<BulkSheetLineInput> {
+        val parsed = mutableListOf<BulkSheetLineInput>()
+        val seenItems = mutableSetOf<String>()
+
+        text.lineSequence().forEachIndexed { index, rawLine ->
+            val line = rawLine.trim()
+            if (line.isBlank()) return@forEachIndexed
+
+            val parts = (if ('\t' in rawLine) rawLine.split('\t') else rawLine.split(','))
+                .map { it.trim() }
+            if (parts.size != 4) {
+                throw IllegalArgumentException(
+                    "${index + 1}번째 줄 형식을 확인해줘.\n예: CPT,10,1.2,5000"
+                )
             }
 
+            val item = parts[0]
+            val needed = parts[1].toIntOrNull()
+            val weight = parts[2].toFloatOrNull()
+            val price = parts[3].toIntOrNull()
+            if (item.isBlank() || needed == null || weight == null || price == null ||
+                needed < 0 || weight < 0f || price < 0
+            ) {
+                throw IllegalArgumentException("${index + 1}번째 줄의 이름이나 숫자를 확인해줘.")
+            }
+
+            val key = item.lowercase(java.util.Locale.ROOT)
+            if (!seenItems.add(key)) {
+                throw IllegalArgumentException("${index + 1}번째 줄에 중복 아이템이 있어: $item")
+            }
+            parsed += BulkSheetLineInput(item, needed, weight, price)
+        }
+
+        if (parsed.isEmpty()) {
+            throw IllegalArgumentException("아이템을 한 개 이상 입력해줘.")
+        }
+        return parsed
+    }
+
+    private fun showBulkSyncConfirmation(
+        inputDialog: AlertDialog,
+        sheetId: Long,
+        country: String,
+        inputs: List<BulkSheetLineInput>,
+        preview: BulkSheetSyncSummary
+    ) {
+        val message = buildString {
+            appendLine("입력 ${inputs.size}개")
+            appendLine()
+            appendLine("추가 ${preview.added}개")
+            appendLine("수정 ${preview.modified}개")
+            appendLine("다시 활성화 ${preview.reactivated}개")
+            appendLine("비활성화 ${preview.deactivated}개")
+            append("변경 없음 ${preview.unchanged}개")
+        }
+
+        if (!preview.hasChanges) {
+            AlertDialog.Builder(requireContext())
+                .setTitle("변경 사항 없음")
+                .setMessage(message)
+                .setPositiveButton("확인", null)
+                .show()
+            return
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("이대로 동기화할까?")
+            .setMessage(message)
+            .setPositiveButton("적용") { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        val result = vm.applyBulkSheetLines(sheetId, country, inputs)
+                        adapter.clearPendingChanges()
+                        inputDialog.dismiss()
+                        Toast.makeText(
+                            requireContext(),
+                            "추가 ${result.added} · 수정 ${result.modified} · 비활성 ${result.deactivated}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(
+                            requireContext(),
+                            e.message ?: "일괄 동기화에 실패했어.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun showMoveLinesToTrashDialog() {
+        val lines = adapter.currentLines()
+        if (lines.isEmpty()) {
+            Toast.makeText(requireContext(), "삭제할 아이템이 없습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val labels = lines.map { "${it.item} (${it.country})" }
+        val checked = BooleanArray(lines.size)
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("휴지통으로 보낼 아이템 선택")
+            .setMultiChoiceItems(labels.toTypedArray(), checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton("휴지통으로") { _, _ ->
+                val selected = lines.filterIndexed { index, _ -> checked[index] }
+                if (selected.isEmpty()) {
+                    Toast.makeText(requireContext(), "선택한 아이템이 없습니다.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                selected.forEach(vm::softDeleteSheetLine)
+                Toast.makeText(
+                    requireContext(),
+                    "${selected.size}개 아이템을 휴지통으로 보냈습니다.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
             .setNegativeButton("취소", null)
             .show()
     }
@@ -350,18 +578,32 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
 
     // 간단 어댑터
     private class LinesAdapter(
-        val onEdit: (SheetLineEntity) -> Unit,
-        val onDelete: (SheetLineEntity) -> Unit,
+        val onPendingCountChanged: (Int) -> Unit,
         val onToggleEnabled: (SheetLineEntity, Boolean) -> Unit,
     ) : RecyclerView.Adapter<VH>() {
 
         var highlightItem: String? = null
+        var showCountryInRow: Boolean = true
         private val data = mutableListOf<ItemCountryDao.SheetLineUi>()
+        private val drafts = linkedMapOf<Long, Pair<SheetLineEntity, SheetLineEntity>>()
 
         fun submit(list: List<ItemCountryDao.SheetLineUi>) {
+            val visibleIds = list.mapTo(mutableSetOf()) { it.line.id }
+            drafts.keys.retainAll(visibleIds)
             data.apply { clear(); addAll(list) }
+            onPendingCountChanged(drafts.size)
             notifyDataSetChanged()
         }
+
+        fun pendingChanges(): List<Pair<SheetLineEntity, SheetLineEntity>> = drafts.values.toList()
+
+        fun clearPendingChanges() {
+            drafts.clear()
+            onPendingCountChanged(0)
+            notifyDataSetChanged()
+        }
+
+        fun hasPendingChanges(): Boolean = drafts.isNotEmpty()
 
         fun currentLines(): List<SheetLineEntity> = data.map { it.line }
 
@@ -383,12 +625,15 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
             val ln = row.line
             val enabled = row.enabled == 1
 
-            h.main.text = "${ln.item} (${ln.country})"
-            h.sub.text = "필요:${ln.needed} 보유:${ln.have} 무게:${ln.weight} 가격:${ln.price}"
-
-            h.btnEdit.setOnClickListener { onEdit(ln) }
-            h.btnDelete.setOnClickListener { onDelete(ln) }
-
+            h.bind(
+                original = ln,
+                initial = drafts[ln.id]?.second ?: ln,
+                showCountry = showCountryInRow
+            ) { edited ->
+                if (edited == null || edited == ln) drafts.remove(ln.id)
+                else drafts[ln.id] = ln to edited
+                onPendingCountChanged(drafts.size)
+            }
             // ✅ 토글 버튼
             h.btnToggleEnabled.text = if (enabled) "활성" else "비활성"
             h.btnToggleEnabled.setOnClickListener { onToggleEnabled(ln, !enabled) }
@@ -402,13 +647,63 @@ class SheetDetailFragment : Fragment(R.layout.fragment_sheet_detail) {
     }
 
     private class VH(v: View) : RecyclerView.ViewHolder(v) {
-        val main: TextView = v.findViewById(R.id.tvMain)
-        val sub: TextView = v.findViewById(R.id.tvSub)
-        val btnEdit: Button = v.findViewById(R.id.btnEdit)
-        val btnDelete: Button = v.findViewById(R.id.btnDelete)
-
-        // ✅ 새 버튼
+        private val etItem: EditText = v.findViewById(R.id.etInlineItem)
+        private val tvCountry: TextView = v.findViewById(R.id.tvInlineCountry)
+        private val etNeeded: EditText = v.findViewById(R.id.etInlineNeeded)
+        private val etHave: EditText = v.findViewById(R.id.etInlineHave)
+        private val etWeight: EditText = v.findViewById(R.id.etInlineWeight)
+        private val etPrice: EditText = v.findViewById(R.id.etInlinePrice)
         val btnToggleEnabled: Button = v.findViewById(R.id.btnToggleEnabled)
+
+        private val watchers = mutableListOf<Pair<EditText, TextWatcher>>()
+
+        fun bind(
+            original: SheetLineEntity,
+            initial: SheetLineEntity,
+            showCountry: Boolean,
+            onDraftChanged: (SheetLineEntity?) -> Unit
+        ) {
+            watchers.forEach { (edit, watcher) -> edit.removeTextChangedListener(watcher) }
+            watchers.clear()
+
+            etItem.setText(initial.item)
+            tvCountry.text = original.country
+            tvCountry.visibility = if (showCountry) View.VISIBLE else View.GONE
+            etNeeded.setText(initial.needed.toString())
+            etHave.setText(initial.have.toString())
+            etWeight.setText(initial.weight.toString())
+            etPrice.setText(initial.price.toString())
+
+            fun editedLineOrNull(): SheetLineEntity? {
+                val item = etItem.text.toString().trim()
+                val needed = etNeeded.text.toString().toIntOrNull()
+                val have = etHave.text.toString().toIntOrNull()
+                val weight = etWeight.text.toString().toFloatOrNull()
+                val price = etPrice.text.toString().toIntOrNull()
+
+                if (item.isBlank() || needed == null || have == null || weight == null || price == null) {
+                    return null
+                }
+                return original.copy(
+                    item = item,
+                    needed = needed,
+                    have = have,
+                    weight = weight,
+                    price = price
+                )
+            }
+
+            listOf(etItem, etNeeded, etHave, etWeight, etPrice).forEach { edit ->
+                val watcher = object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                    override fun afterTextChanged(s: Editable?) = onDraftChanged(editedLineOrNull())
+                }
+                edit.addTextChangedListener(watcher)
+                watchers += edit to watcher
+            }
+
+        }
     }
 
     companion object {

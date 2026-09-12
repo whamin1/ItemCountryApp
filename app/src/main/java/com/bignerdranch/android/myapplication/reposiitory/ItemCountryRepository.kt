@@ -28,6 +28,24 @@ import java.time.ZoneId
 import java.util.Calendar
 import kotlin.math.abs
 
+data class BulkSheetLineInput(
+    val item: String,
+    val needed: Int,
+    val weight: Float,
+    val price: Int
+)
+
+data class BulkSheetSyncSummary(
+    val added: Int,
+    val modified: Int,
+    val reactivated: Int,
+    val deactivated: Int,
+    val unchanged: Int
+) {
+    val hasChanges: Boolean
+        get() = added + modified + reactivated + deactivated > 0
+}
+
 class ItemCountryRepository(
     private val appContext: Context,
     private val db: AppDatabase,
@@ -46,7 +64,11 @@ class ItemCountryRepository(
     }
 
     /** Map<아이템명, 나라리스트> 한 방에 추가 */
-    suspend fun addItems(items: Map<String, List<String>>) {
+    suspend fun addItems(items: Map<String, List<String>>) = db.withTransaction {
+        addItemsInTransaction(items)
+    }
+
+    private suspend fun addItemsInTransaction(items: Map<String, List<String>>) {
         val itemEntities = items.keys.map { ItemEntity(name = it) }
         val countryNameSet = items.values.flatten().toSet()
         val countryEntities = countryNameSet.map { CountryEntity(name = it) }
@@ -56,14 +78,12 @@ class ItemCountryRepository(
 
         val nameToItemId = mutableMapOf<String, Long>()
         val nameToCountryId = mutableMapOf<String, Long>()
-        withContext(Dispatchers.IO) {
-            for (name in items.keys) {
-                dao.findItemByName(name)?.let { nameToItemId[name] = it.id }
-            }
+        for (name in items.keys) {
+            dao.findItemByName(name)?.let { nameToItemId[name] = it.id }
+        }
 
-            for (name in countryNameSet) {
-                dao.findCountryByName(name)?.let { nameToCountryId[name] = it.id }
-            }
+        for (name in countryNameSet) {
+            dao.findCountryByName(name)?.let { nameToCountryId[name] = it.id }
         }
 
 
@@ -76,22 +96,22 @@ class ItemCountryRepository(
                 }
             }
         }
-        dao.insertCrossRefs(refs) // 중복은 IGNORE
+        val inserted = dao.insertCrossRefs(refs) // 중복은 IGNORE
+        val newlyLinked = refs.zip(inserted)
+            .filter { (_, rowId) -> rowId != -1L }
+            .map { (ref, _) -> ref }
+
         val logs: List<AdditionLogEntity> = buildList {
-            items.forEach { (itemName, countries) ->
-                val itemId = dao.getItemIdByName(itemName) ?: return@forEach
-                countries.forEach { cn ->
-                    val countryId = dao.getCountryIdByName(cn) ?: return@forEach
-                    add(
-                        AdditionLogEntity(
-                            itemId = itemId,
-                            countryId = countryId,
-                            needed = 0,
-                            have = 0,
-                            timestamp = System.currentTimeMillis()
-                        )
+            newlyLinked.forEach { ref ->
+                add(
+                    AdditionLogEntity(
+                        itemId = ref.itemId,
+                        countryId = ref.countryId,
+                        needed = 0,
+                        have = 0,
+                        timestamp = System.currentTimeMillis()
                     )
-                }
+                )
             }
         }
         if (logs.isNotEmpty()) dao.insertAdditionLog(logs)
@@ -238,13 +258,14 @@ class ItemCountryRepository(
     }
 
     // 시트 만들기 (CSV 파싱 후 라인 리스트로 저장하는 용도)
-    suspend fun createSheet(title: String, lines: List<SheetLineEntity>): Long {
+    suspend fun createSheet(title: String, lines: List<SheetLineEntity>): Long = db.withTransaction {
         val sheetId = sheetDao.insertSheet(SheetEntity(title = title))
+        val withId = lines.map { it.copy(sheetId = sheetId) }
         if (lines.isNotEmpty()) {
-            val withId = lines.map { it.copy(sheetId = sheetId) }
             sheetDao.insertSheetLines(withId)
         }
-        return sheetId
+        syncVisibleSheetLinesToHome(sheetId, withId)
+        sheetId
     }
 
     suspend fun toggleSheetHidden(sheetId: Long, hidden: Boolean) {
@@ -252,8 +273,16 @@ class ItemCountryRepository(
     }
 
     suspend fun deleteSheet(sheetId: Long) {
-        sheetDao.deleteSheetLinesBySheet(sheetId)
-        sheetDao.deleteSheetById(sheetId)
+        val wasActiveSheet = getActiveSheetId() == sheetId
+        db.withTransaction {
+            val removedLines = sheetDao.getSheetLines(sheetId)
+            sheetDao.deleteSheetLinesBySheet(sheetId)
+            sheetDao.deleteSheetById(sheetId)
+            unlinkPairsNoLongerUsed(removedLines)
+        }
+        if (wasActiveSheet) {
+            prefs.edit().remove("active_sheet_id").apply()
+        }
     }
 
     fun observeSheets() = sheetDao.observeAllSheets()
@@ -267,8 +296,15 @@ class ItemCountryRepository(
         if (lines.isEmpty()) return
 
         if (sheet.hidden) {
-            // ✅ 비활성화된 시트면 기존 아이템-나라 링크 삭제
-            for (ln in lines) {
+            // 다른 시트에서도 쓰는 연결은 보존하고, 이 시트에만 있던 연결만 제거한다.
+            for (ln in lines.filter { !it.isDeleted }) {
+                val usedElsewhere = dao.countSheetLinesByItemAndCountryExcludingSheet(
+                    ln.item,
+                    ln.country,
+                    sheetId
+                ) > 0
+                if (usedElsewhere) continue
+
                 val itemId = dao.getItemIdByName(ln.item)
                 val countryId = dao.getCountryIdByName(ln.country)
                 if (itemId != null && countryId != null) {
@@ -302,9 +338,71 @@ class ItemCountryRepository(
 
     suspend fun deleteSheetLine(line: SheetLineEntity) = dao.deleteSheetLine(line)
 
-    // (선택) 추가 버튼 쓸 거면
-    suspend fun insertSheetLine(sheetId: Long, line: SheetLineEntity) =
-        dao.insertSheetLine(line.copy(sheetId = sheetId))
+    // 시트에 추가하면 홈에도 즉시 반영한다.
+    suspend fun insertSheetLine(sheetId: Long, line: SheetLineEntity) = db.withTransaction {
+        val savedLine = line.copy(sheetId = sheetId)
+        dao.insertSheetLine(savedLine)
+        syncVisibleSheetLinesToHome(sheetId, listOf(savedLine))
+    }
+
+    /**
+     * 보이는 시트의 새 라인을 홈 목록과 동기화한다.
+     * 이미 홈에 있던 조합은 현재 생산 개수(have)를 보존한다.
+     */
+    private suspend fun syncVisibleSheetLinesToHome(
+        sheetId: Long,
+        lines: List<SheetLineEntity>
+    ) {
+        val sheet = dao.getSheetById(sheetId) ?: return
+        if (sheet.hidden) return
+
+        val activeLines = lines
+            .filter {
+                !it.isDeleted && !it.hidden &&
+                        it.item.isNotBlank() && it.country.isNotBlank()
+            }
+            .associateBy {
+                it.item.trim().lowercase(java.util.Locale.ROOT) to
+                        it.country.trim().lowercase(java.util.Locale.ROOT)
+            }
+            .values
+            .toList()
+        if (activeLines.isEmpty()) return
+
+        val previousHave = mutableMapOf<Pair<String, String>, Int?>()
+        activeLines.forEach { line ->
+            val key = line.item.trim().lowercase(java.util.Locale.ROOT) to
+                    line.country.trim().lowercase(java.util.Locale.ROOT)
+            val itemId = dao.getItemIdByName(line.item.trim())
+            val countryId = dao.getCountryIdByName(line.country.trim())
+            previousHave[key] = if (itemId != null && countryId != null) {
+                dao.getHave(itemId, countryId)
+            } else {
+                null
+            }
+        }
+
+        val itemToCountries = activeLines
+            .groupBy({ it.item.trim() }, { it.country.trim() })
+            .mapValues { (_, countries) -> countries.distinct() }
+        addItemsInTransaction(itemToCountries)
+
+        activeLines.forEach { line ->
+            val item = line.item.trim()
+            val country = line.country.trim()
+            val key = item.lowercase(java.util.Locale.ROOT) to
+                    country.lowercase(java.util.Locale.ROOT)
+            val itemId = dao.getItemIdByName(item) ?: return@forEach
+            val countryId = dao.getCountryIdByName(country) ?: return@forEach
+            val have = previousHave[key] ?: line.have.coerceAtLeast(0)
+
+            // 다시 추가한 나라는 홈에서 바로 보이도록 숨김을 해제한다.
+            dao.setCountryHidden(country, false)
+            dao.updateQuantityClamped(itemId, countryId, line.needed, have)
+            dao.updateWeightAndPrice(item, country, line.weight, line.price.toFloat())
+            dao.setItemCountryEnabled(item, country, true)
+        }
+    }
 
     fun observeSessionLines(sessionId: Long, onlySaved: Boolean) =
         saveArchiveDao.observeSessionLines(sessionId, if (onlySaved) 1 else 0)
@@ -357,7 +455,33 @@ class ItemCountryRepository(
     }
 
     suspend fun deleteSheetLinesByCountry(sheetId: Long, country: String) {
-        sheetDao.deleteSheetLinesByCountry(sheetId, country)
+        db.withTransaction {
+            val removedLines = sheetDao.getSheetLines(sheetId)
+                .filter { it.country.equals(country, ignoreCase = true) }
+            sheetDao.deleteSheetLinesByCountry(sheetId, country)
+            unlinkPairsNoLongerUsed(removedLines)
+        }
+    }
+
+    /**
+     * 삭제된 시트 줄의 홈 연결만 선별 정리한다.
+     * 다른 활성 시트에서 같은 (아이템, 나라)를 사용하면 절대 지우지 않는다.
+     * 수량 로그는 별도 기록 테이블이므로 이 과정에서 건드리지 않는다.
+     */
+    private suspend fun unlinkPairsNoLongerUsed(lines: List<SheetLineEntity>) {
+        lines
+            .distinctBy {
+                it.item.trim().lowercase(java.util.Locale.ROOT) to
+                        it.country.trim().lowercase(java.util.Locale.ROOT)
+            }
+            .forEach { line ->
+                val remaining = dao.countSheetLinesByItemAndCountry(line.item, line.country)
+                if (remaining == 0) {
+                    val itemId = dao.getItemIdByName(line.item) ?: return@forEach
+                    val countryId = dao.getCountryIdByName(line.country) ?: return@forEach
+                    dao.deleteLinkByIds(itemId, countryId)
+                }
+            }
     }
 
     fun searchSheetItems(q: String): Flow<List<ItemSearchRow>> {
@@ -396,6 +520,143 @@ class ItemCountryRepository(
 
 
     suspend fun observeActiveLines(sheetId: Long) = dao.observeActiveLines(sheetId)
+
+
+    suspend fun previewBulkSheetLines(
+        sheetId: Long,
+        country: String,
+        inputs: List<BulkSheetLineInput>
+    ): BulkSheetSyncSummary {
+        require(country.isNotBlank()) { "나라가 비어 있습니다." }
+        require(inputs.isNotEmpty()) { "입력된 아이템이 없습니다." }
+        require(inputs.map { normalizeBulkItemName(it.item) }.distinct().size == inputs.size) {
+            "중복된 아이템 이름이 있습니다."
+        }
+
+        val currentLines = currentCountryLines(sheetId, country)
+        val currentByItem = currentLines.associateBy { normalizeBulkItemName(it.item) }
+        val inputKeys = inputs.mapTo(mutableSetOf()) { normalizeBulkItemName(it.item) }
+
+        var added = 0
+        var modified = 0
+        var reactivated = 0
+        var unchanged = 0
+
+        for (input in inputs) {
+            val current = currentByItem[normalizeBulkItemName(input.item)]
+            if (current == null) {
+                added++
+                continue
+            }
+
+            val valuesChanged =
+                current.needed != input.needed ||
+                        kotlin.math.abs(current.weight - input.weight) > 0.0001f ||
+                        current.price != input.price
+            val isInactive = dao.getItemCountryEnabled(current.item, current.country) == 0
+
+            if (valuesChanged) modified++
+            if (isInactive) reactivated++
+            if (!valuesChanged && !isInactive) unchanged++
+        }
+
+        val deactivated = currentLines
+            .distinctBy { normalizeBulkItemName(it.item) }
+            .count { line ->
+                normalizeBulkItemName(line.item) !in inputKeys &&
+                        dao.getItemCountryEnabled(line.item, line.country) != 0
+            }
+
+        return BulkSheetSyncSummary(
+            added = added,
+            modified = modified,
+            reactivated = reactivated,
+            deactivated = deactivated,
+            unchanged = unchanged
+        )
+    }
+
+    suspend fun applyBulkSheetLines(
+        sheetId: Long,
+        country: String,
+        inputs: List<BulkSheetLineInput>
+    ): BulkSheetSyncSummary = db.withTransaction {
+        val summary = previewBulkSheetLines(sheetId, country, inputs)
+        val currentLines = currentCountryLines(sheetId, country)
+        val currentByItem = currentLines.associateBy { normalizeBulkItemName(it.item) }
+        val inputKeys = inputs.mapTo(mutableSetOf()) { normalizeBulkItemName(it.item) }
+        var nextSortOrder = (dao.getMaxSortOrder(sheetId) + 1).coerceAtLeast(0)
+
+        var countryId = dao.getCountryIdByName(country)
+        if (countryId == null) {
+            dao.upsertCountries(listOf(CountryEntity(name = country)))
+            countryId = dao.getCountryIdByName(country)
+        }
+        val resolvedCountryId = requireNotNull(countryId) {
+            "나라를 저장하지 못했습니다: $country"
+        }
+
+        for (input in inputs) {
+            val cleanItem = input.item.trim()
+            val current = currentByItem[normalizeBulkItemName(cleanItem)]
+            val effectiveItem = current?.item ?: cleanItem
+
+            var itemId = dao.getItemIdByName(effectiveItem)
+            if (itemId == null) {
+                dao.upsertItems(listOf(ItemEntity(name = effectiveItem)))
+                itemId = dao.getItemIdByName(effectiveItem)
+            }
+            val resolvedItemId = requireNotNull(itemId) {
+                "아이템을 저장하지 못했습니다: $effectiveItem"
+            }
+
+            dao.insertCrossRefs(listOf(ItemCountryCrossRef(resolvedItemId, resolvedCountryId)))
+
+            val have = current?.have ?: 0
+            if (current == null) {
+                dao.insertSheetLine(
+                    SheetLineEntity(
+                        sheetId = sheetId,
+                        item = effectiveItem,
+                        country = country,
+                        needed = input.needed,
+                        have = 0,
+                        weight = input.weight,
+                        price = input.price,
+                        sortOrder = nextSortOrder++
+                    )
+                )
+            } else {
+                dao.updateSheetLine(
+                    current.copy(
+                        needed = input.needed,
+                        weight = input.weight,
+                        price = input.price
+                    )
+                )
+            }
+
+            dao.updateQuantityClamped(resolvedItemId, resolvedCountryId, input.needed, have)
+            dao.updateWeightAndPrice(effectiveItem, country, input.weight, input.price.toFloat())
+            dao.setItemCountryEnabled(effectiveItem, country, true)
+        }
+
+        currentLines
+            .distinctBy { normalizeBulkItemName(it.item) }
+            .filter { normalizeBulkItemName(it.item) !in inputKeys }
+            .forEach { dao.setItemCountryEnabled(it.item, it.country, false) }
+
+        summary
+    }
+
+    private suspend fun currentCountryLines(
+        sheetId: Long,
+        country: String
+    ): List<SheetLineEntity> = dao.getSheetLines(sheetId)
+        .filter { !it.isDeleted && it.country.equals(country, ignoreCase = true) }
+
+    private fun normalizeBulkItemName(name: String): String =
+        name.trim().lowercase(java.util.Locale.ROOT)
 
 
     suspend fun updateSheetLineAndApplyHome(old: SheetLineEntity, new: SheetLineEntity) {
@@ -650,7 +911,7 @@ class ItemCountryRepository(
 
 ////////////////////////////////////////////////////////
         val activeDayIndexes: Set<Long> = logs
-            .map { it.timestamp / DAY_MS }
+            .map { dayIndexKst(it.timestamp) }
             .toSet()
 
 
@@ -740,7 +1001,7 @@ class ItemCountryRepository(
 
         for ((itemId, rows) in groups) {
             val gaps = workGapsByItem[itemId] ?: continue
-            val recent = gaps.takeLast(15)               // ✅ 최근 15개만(10~30 적당)
+            val recent = gaps.takeLast(10)               // ✅ 최근 15개만(10~30 적당)
             val interval = median(recent)                // ✅ 평균 대신 중앙값
             if (interval <= 0L) continue
             val name = itemNameMap[itemId] ?: continue
@@ -1069,7 +1330,7 @@ class ItemCountryRepository(
         val avgGap = if (logUi.isNotEmpty()) (logUi.sumOf { it.workGapMs } / logUi.size) else null
 
         // 8) 다음 예상 5개
-        val recent15 = workGaps.takeLast(15)
+        val recent15 = workGaps.takeLast(10)
         val interval = median(recent15)
         val base = rows.last().timestamp
 
@@ -1097,11 +1358,4 @@ class ItemCountryRepository(
             nextPredictions = preds
         )
     }
-
-    ///////
-
-    suspend fun ackPrediction(itemId: Long) {
-        dao.upsertAck(PredictionAckEntity(itemId, System.currentTimeMillis()))
-    }
-
 }

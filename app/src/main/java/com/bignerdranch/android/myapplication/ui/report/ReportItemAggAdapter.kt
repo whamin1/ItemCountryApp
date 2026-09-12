@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bignerdranch.android.myapplication.R
 import com.bignerdranch.android.myapplication.data.local.dao.ItemCountryDao
 import java.text.NumberFormat
+import java.text.Collator
 import java.util.Locale
 
 class ReportItemAggAdapter(
@@ -21,10 +22,14 @@ class ReportItemAggAdapter(
     private val shown = mutableListOf<ItemCountryDao.ReportItemAggRow>()
 
     fun submit(list: List<ItemCountryDao.ReportItemAggRow>) {
+        val collator = Collator.getInstance(Locale.KOREA)
+        val sorted = list.sortedWith { left, right ->
+            collator.compare(right.item, left.item)
+        }
         all.clear()
-        all.addAll(list)
+        all.addAll(sorted)
         shown.clear()
-        shown.addAll(list)
+        shown.addAll(sorted)
         totalKgAll = list.sumOf { it.totalKg }
         notifyDataSetChanged()
     }

@@ -30,10 +30,19 @@
                 android:id="@+id/tvMode"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="0.5"
+                android:layout_weight="1"
                 android:text="아이템 기준"
                 android:textSize="16sp"/>
 
+            <com.google.android.material.chip.Chip
+                android:id="@+id/homeCategoryAllChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:checked="true"
+                android:checkable="true"
+                android:text="전체"
+                />
 
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switchMode"
@@ -48,6 +57,26 @@
                 android:checked="true"
                 android:layout_marginStart="12dp"/>
         </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:fillViewport="false"
+            android:scrollbars="none">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/homeCategoryFilterGroup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="8dp"
+                android:paddingBottom="4dp"
+                app:singleLine="true"
+                app:singleSelection="true" />
+
+        </HorizontalScrollView>
+
+        <!-- 홈 화면 예상 아이템 영역 (필요하면 주석을 해제해서 복구)
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -68,6 +97,7 @@
                 android:text="모두"/>
 
         </FrameLayout>
+        -->
 
         <FrameLayout
             android:layout_width="match_parent"

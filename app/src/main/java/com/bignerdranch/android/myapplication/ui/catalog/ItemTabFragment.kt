@@ -76,7 +76,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         val searchView = searchItem.actionView as androidx.appcompat.widget.SearchView
 
 
-        searchView.queryHint = "아이템/나라 검색"
+        searchView.queryHint = "아이템/나라 검색 (=아이템명: 정확히)"
 
         searchView.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
@@ -521,14 +521,11 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
     private fun showEditDialog(row: ItemCountryDao.QuantityRow) {
         val v = layoutInflater.inflate(R.layout.dialog_edit_quantity_log, null)
 
-        val tvHeader = v.findViewById<TextView>(R.id.tvHeader)
         val spItem = v.findViewById<android.widget.Spinner>(R.id.spItem)
         val spCountry = v.findViewById<android.widget.Spinner>(R.id.spCountry)
         val tvTime = v.findViewById<TextView>(R.id.tvTime)
         val btnPickTime = v.findViewById<android.widget.Button>(R.id.btnPickTime)
         val etDelta = v.findViewById<android.widget.EditText>(R.id.etDelta)
-
-        tvHeader.text = "로그 수정: ${row.item} / ${row.country}"
 
         var pickedMillis = row.timestamp
         tvTime.text = "시간: ${fmt.format(Date(pickedMillis))}"
@@ -544,13 +541,25 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         // Spinner 데이터 준비(비동기)
         viewLifecycleOwner.lifecycleScope.launch {
             // 1) items 로드 후 spItem 세팅
-            val items = dao.getActiveItemsIdName()
+            val items = dao.getActiveItemsIdName().toMutableList()
+            if (items.none { it.name.equals(row.item, ignoreCase = true) }) {
+                dao.getItemIdByName(row.item)?.let { currentItemId ->
+                    items.add(0, ItemCountryDao.IdName(currentItemId, row.item))
+                }
+            }
             val itemNames = items.map { it.name }
             spItem.adapter = ArrayAdapter(
                 requireContext(),
                 android.R.layout.simple_spinner_dropdown_item,
                 itemNames
             )
+
+            val currentItemIndex = itemNames.indexOfFirst {
+                it.equals(row.item, ignoreCase = true)
+            }
+            if (currentItemIndex >= 0) {
+                spItem.setSelection(currentItemIndex, false)
+            }
 
             // 2) 아이템 선택 시 -> 그 아이템에 속한 나라만 로드해서 spCountry 갱신
             fun loadCountriesForSelectedItem(selectCountryName: String? = null) {
@@ -559,11 +568,18 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
                 viewLifecycleOwner.lifecycleScope.launch {
                     val countries = dao.getCountriesForItem(itemId)
-                    val countryNames = countries.map { it.name }
+                    val countryNames = countries.map { it.name }.toMutableList()
+                    if (!selectCountryName.isNullOrBlank() &&
+                        countryNames.none { it.equals(selectCountryName, ignoreCase = true) }
+                    ) {
+                        countryNames.add(0, selectCountryName)
+                    }
 
                     spCountry.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, countryNames)
 
-                    val idx = selectCountryName?.let { countryNames.indexOf(it) } ?: -1
+                    val idx = selectCountryName?.let { selected ->
+                        countryNames.indexOfFirst { it.equals(selected, ignoreCase = true) }
+                    } ?: -1
                     spCountry.setSelection(if (idx >= 0) idx else 0)
                 }
             }
@@ -572,8 +588,12 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
             loadCountriesForSelectedItem(row.country)
 
 // 아이템 바뀌면 나라 목록 갱신
+            var lastSelectedItem = spItem.selectedItem?.toString().orEmpty()
             spItem.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
+                    val selectedItem = spItem.selectedItem?.toString().orEmpty()
+                    if (selectedItem.equals(lastSelectedItem, ignoreCase = true)) return
+                    lastSelectedItem = selectedItem
                     loadCountriesForSelectedItem(null)
                 }
                 override fun onNothingSelected(parent: AdapterView<*>) {}
@@ -581,7 +601,7 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
         }
 
         androidx.appcompat.app.AlertDialog.Builder(requireContext())
-            .setTitle("수정")
+            .setTitle("로그 수정: ${row.item} / ${row.country}")
             .setView(v)
             .setPositiveButton("저장") { _, _ ->
                 val newDelta = etDelta.text.toString().toIntOrNull() ?: row.delta
@@ -797,11 +817,20 @@ class ItemTabFragment : Fragment(R.layout.fragment_catalog_list) {
 
         // 2) 검색 필터
         val q = searchQuery.trim()
-        val finalList = if (q.isNotEmpty()) {
+        val exactItemSearch = q.startsWith("=")
+        val searchText = if (exactItemSearch) q.removePrefix("=").trim() else q
+
+        val finalList = if (searchText.isNotEmpty()) {
             dateFiltered.filter { row ->
-                row.item.contains(q, ignoreCase = true) ||
-                        row.country.contains(q, ignoreCase = true)
+                if (exactItemSearch) {
+                    row.item.equals(searchText, ignoreCase = true)
+                } else {
+                    row.item.contains(searchText, ignoreCase = true) ||
+                            row.country.contains(searchText, ignoreCase = true)
+                }
             }
+        } else if (exactItemSearch) {
+            emptyList()
         } else {
             dateFiltered
         }

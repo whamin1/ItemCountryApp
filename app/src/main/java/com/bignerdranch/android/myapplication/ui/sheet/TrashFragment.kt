@@ -74,7 +74,7 @@ class TrashFragment : Fragment(R.layout.fragment_trash) {
         }
 
         override fun onCreateViewHolder(p: ViewGroup, viewType: Int): VH {
-            val v = LayoutInflater.from(p.context).inflate(R.layout.item_sheet_line, p, false)
+            val v = LayoutInflater.from(p.context).inflate(R.layout.item_trash_line, p, false)
             return VH(v)
         }
 

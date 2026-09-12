@@ -12,4 +12,9 @@
         android:title="정리"
         android:icon="@drawable/ic_cleaning"
         app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_reset_off_by_country"
+        android:title="나라별 OFF 0으로"
+        app:showAsAction="never" />
 </menu>

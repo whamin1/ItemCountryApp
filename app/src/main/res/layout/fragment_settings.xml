@@ -1,10 +1,105 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <TextView
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/categoryToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimary"
+            app:title="분류"
+            app:titleTextColor="?attr/colorOnPrimary"
+            app:menu="@menu/menu_categories" />
+
+        <androidx.appcompat.widget.SearchView
+            android:id="@+id/categorySearch"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginHorizontal="12dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:queryHint="아이템 검색"
+            app:iconifiedByDefault="false" />
+
+        <TextView
+            android:id="@+id/tvCategoryCountSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="4dp"
+            android:text="전체 0개 · 분류 0개 · 미분류 0개"
+            android:textStyle="bold" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:fillViewport="false"
+            android:scrollbars="none">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/categoryFilterGroup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="12dp"
+                app:singleLine="true"
+                app:singleSelection="true" />
+
+        </HorizontalScrollView>
+
+        <TextView
+            android:id="@+id/tvCategoryEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:padding="24dp"
+            android:text="아이템이 없습니다."
+            android:visibility="gone" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/categoryRecycler"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingEnd="32dp"
+                android:paddingBottom="96dp" />
+
+            <TextView
+                android:id="@+id/categoryIndexBar"
+                android:layout_width="24dp"
+                android:layout_height="match_parent"
+                android:layout_gravity="end"
+                android:background="#1A000000"
+                android:clickable="true"
+                android:elevation="8dp"
+                android:focusable="true"
+                android:gravity="center"
+                android:padding="4dp" />
+
+        </FrameLayout>
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fabSaveCategories"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="설정 화면(임시)"/>
-</FrameLayout>
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:enabled="false"
+        android:text="수정하기"
+        app:icon="@android:drawable/ic_menu_save" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

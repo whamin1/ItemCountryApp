@@ -1,40 +1,86 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical" android:padding="8dp"
-    android:layout_width="match_parent" android:layout_height="wrap_content">
-
-    <TextView
-        android:id="@+id/tvMain"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:textStyle="bold"/>
-
-    <TextView
-        android:id="@+id/tvSub"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:textSize="12sp" android:paddingTop="2dp"/>
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp">
 
     <LinearLayout
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:paddingTop="6dp">
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/btnEdit"
-            android:layout_width="0dp" android:layout_height="36dp"
-            android:layout_weight="1" android:text="수정"/>
-
-        <Button
-            android:id="@+id/btnDelete"
+        <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="36dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="삭제"
-            android:layout_marginStart="8dp"/>
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/etInlineItem"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="아이템명"
+                android:singleLine="true"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvInlineCountry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="4dp"
+                android:textSize="12sp" />
+        </LinearLayout>
+
         <Button
             android:id="@+id/btnToggleEnabled"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="36dp"
-            android:layout_weight="1"
-            android:text="활성"
-            android:layout_marginStart="8dp"/>
+            android:layout_marginStart="8dp"
+            android:text="활성" />
     </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/etInlineNeeded"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="필요"
+            android:inputType="number"
+            android:singleLine="true" />
+
+        <EditText
+            android:id="@+id/etInlineHave"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="보유"
+            android:inputType="number"
+            android:singleLine="true" />
+
+        <EditText
+            android:id="@+id/etInlineWeight"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="무게"
+            android:inputType="numberDecimal"
+            android:singleLine="true" />
+
+        <EditText
+            android:id="@+id/etInlinePrice"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="가격"
+            android:inputType="number"
+            android:singleLine="true" />
+    </LinearLayout>
+
 </LinearLayout>
